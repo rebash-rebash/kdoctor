@@ -14,20 +14,13 @@ class DeploymentAuditTest(unittest.TestCase):
             liveness_probe=None,
             readiness_probe=None,
             startup_probe=None,
-            security_context=obj(
-                run_as_non_root=None,
-                run_as_user=0,
-                privileged=True
-            )
+            security_context=obj(run_as_non_root=None, run_as_user=0, privileged=True),
         )
 
         result = deployment_audit.evaluate_deployment(
             deployment(containers=[insecure_container])
         )
-        findings = {
-            item["finding"]
-            for item in result["findings"]
-        }
+        findings = {item["finding"] for item in result["findings"]}
 
         self.assertIn("Missing requests", findings)
         self.assertIn("Missing limits", findings)
@@ -48,21 +41,15 @@ class DeploymentAuditTest(unittest.TestCase):
             limits=None,
             liveness_probe=None,
             readiness_probe=None,
-            security_context=obj(
-                run_as_non_root=None,
-                run_as_user=0,
-                privileged=True
-            )
+            security_context=obj(run_as_non_root=None, run_as_user=0, privileged=True),
         )
         app = container(
             name="api",
             requests={"cpu": "100m", "memory": "128Mi"},
             limits={"cpu": "500m", "memory": "512Mi"},
             security_context=obj(
-                run_as_non_root=True,
-                run_as_user=1000,
-                privileged=False
-            )
+                run_as_non_root=True, run_as_user=1000, privileged=False
+            ),
         )
 
         result = deployment_audit.evaluate_deployment(
@@ -76,20 +63,17 @@ class DeploymentAuditTest(unittest.TestCase):
     def test_runs_as_root_honors_non_root_context(self):
         self.assertFalse(
             deployment_audit.runs_as_root(
-                obj(run_as_non_root=True, run_as_user=None),
-                None
+                obj(run_as_non_root=True, run_as_user=None), None
             )
         )
         self.assertFalse(
             deployment_audit.runs_as_root(
-                obj(run_as_non_root=None, run_as_user=1000),
-                None
+                obj(run_as_non_root=None, run_as_user=1000), None
             )
         )
         self.assertTrue(
             deployment_audit.runs_as_root(
-                obj(run_as_non_root=None, run_as_user=0),
-                None
+                obj(run_as_non_root=None, run_as_user=0), None
             )
         )
 

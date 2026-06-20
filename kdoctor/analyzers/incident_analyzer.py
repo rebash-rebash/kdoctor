@@ -2,12 +2,8 @@ from rich.console import Console
 from rich.table import Table
 
 from kdoctor.clients.kube_client import get_apps_v1, get_core_v1
-from kdoctor.utils.kube import (
-    oom_events,
-    revision_label,
-    revision_number,
-    total_restarts
-)
+from kdoctor.utils.kube import (oom_events, revision_label, revision_number,
+                                total_restarts)
 
 console = Console()
 
@@ -16,41 +12,22 @@ def investigate_incident(timeout: int = 15):
     try:
         core = get_core_v1()
         apps = get_apps_v1()
-        pods = core.list_pod_for_all_namespaces(
-            _request_timeout=timeout
-        ).items
-        nodes = core.list_node(
-            _request_timeout=timeout
-        ).items
+        pods = core.list_pod_for_all_namespaces(_request_timeout=timeout).items
+        nodes = core.list_node(_request_timeout=timeout).items
         deployments = apps.list_deployment_for_all_namespaces(
             _request_timeout=timeout
         ).items
         replicasets = list_replicasets(apps, timeout)
     except Exception as e:
-        console.print(
-            f"[red]Failed to investigate incident:[/red] {e}"
-        )
+        console.print(f"[red]Failed to investigate incident:[/red] {e}")
         return
 
     pod_summary = analyze_cluster_pods(pods)
     node_issues = analyze_node_issues(nodes)
-    deployment_summary = analyze_deployments(
-        deployments,
-        pods,
-        replicasets
-    )
-    likely_cause = choose_likely_cause(
-        pod_summary,
-        node_issues,
-        deployment_summary
-    )
+    deployment_summary = analyze_deployments(deployments, pods, replicasets)
+    likely_cause = choose_likely_cause(pod_summary, node_issues, deployment_summary)
 
-    print_incident_summary(
-        likely_cause,
-        pod_summary,
-        node_issues,
-        deployment_summary
-    )
+    print_incident_summary(likely_cause, pod_summary, node_issues, deployment_summary)
 
 
 def analyze_cluster_pods(pods):
@@ -79,12 +56,7 @@ def analyze_cluster_pods(pods):
     restarting.sort(key=lambda item: item[1], reverse=True)
     oom.sort(key=lambda item: item[1], reverse=True)
 
-    return {
-        "pending": pending,
-        "failed": failed,
-        "restarting": restarting,
-        "oom": oom
-    }
+    return {"pending": pending, "failed": failed, "restarting": restarting, "oom": oom}
 
 
 def analyze_node_issues(nodes):
@@ -92,34 +64,21 @@ def analyze_node_issues(nodes):
 
     for node in nodes:
         for condition in node.status.conditions or []:
-            if (
-                condition.type == "Ready"
-                and condition.status != "True"
-            ):
-                issues.append(
-                    (node.metadata.name, "NotReady")
-                )
+            if condition.type == "Ready" and condition.status != "True":
+                issues.append((node.metadata.name, "NotReady"))
 
             if (
-                condition.type in [
-                    "MemoryPressure",
-                    "DiskPressure",
-                    "PIDPressure"
-                ]
+                condition.type in ["MemoryPressure", "DiskPressure", "PIDPressure"]
                 and condition.status == "True"
             ):
-                issues.append(
-                    (node.metadata.name, condition.type)
-                )
+                issues.append((node.metadata.name, condition.type))
 
     return issues
 
 
 def list_replicasets(apps, timeout):
     try:
-        return apps.list_replica_set_for_all_namespaces(
-            _request_timeout=timeout
-        ).items
+        return apps.list_replica_set_for_all_namespaces(_request_timeout=timeout).items
     except Exception:
         return []
 
@@ -127,20 +86,14 @@ def list_replicasets(apps, timeout):
 def analyze_deployments(deployments, all_pods, all_replicasets):
     reports = []
     pods_by_namespace = group_by_namespace(all_pods)
-    replicasets_by_deployment_uid = group_replicasets_by_owner(
-        all_replicasets
-    )
+    replicasets_by_deployment_uid = group_replicasets_by_owner(all_replicasets)
 
     for deployment in deployments:
         namespace = deployment.metadata.namespace
         pods = matching_deployment_pods(
-            deployment,
-            pods_by_namespace.get(namespace, [])
+            deployment, pods_by_namespace.get(namespace, [])
         )
-        replicasets = replicasets_by_deployment_uid.get(
-            deployment.metadata.uid,
-            []
-        )
+        replicasets = replicasets_by_deployment_uid.get(deployment.metadata.uid, [])
         desired = deployment.spec.replicas or 0
         ready = deployment.status.ready_replicas or 0
         restarts = sum(total_restarts(pod) for pod in pods)
@@ -151,26 +104,22 @@ def analyze_deployments(deployments, all_pods, all_replicasets):
 
         reports.append(
             {
-                "name": (
-                    f"{namespace}/{deployment.metadata.name}"
-                ),
+                "name": (f"{namespace}/{deployment.metadata.name}"),
                 "desired": desired,
                 "ready": ready,
                 "restarts": restarts,
                 "oom": ooms,
-                "revision": (
-                    revision_label(replicasets[0])
-                    if replicasets else "?"
-                )
+                "revision": (revision_label(replicasets[0]) if replicasets else "?"),
             }
         )
 
     reports.sort(
         key=lambda item: (
-            item["restarts"] + item["oom"] * 5
+            item["restarts"]
+            + item["oom"] * 5
             + max(0, item["desired"] - item["ready"]) * 10
         ),
-        reverse=True
+        reverse=True,
     )
 
     return reports
@@ -194,10 +143,7 @@ def group_replicasets_by_owner(replicasets):
             grouped.setdefault(owner.uid, []).append(replicaset)
 
     for owned_replicasets in grouped.values():
-        owned_replicasets.sort(
-            key=lambda item: revision_number(item),
-            reverse=True
-        )
+        owned_replicasets.sort(key=lambda item: revision_number(item), reverse=True)
 
     return grouped
 
@@ -208,10 +154,7 @@ def matching_deployment_pods(deployment, pods):
     if not selector:
         return []
 
-    return [
-        pod for pod in pods
-        if labels_match(selector, pod.metadata.labels or {})
-    ]
+    return [pod for pod in pods if labels_match(selector, pod.metadata.labels or {})]
 
 
 def labels_match(selector, labels):
@@ -222,11 +165,7 @@ def labels_match(selector, labels):
     return True
 
 
-def choose_likely_cause(
-    pod_summary,
-    node_issues,
-    deployment_summary
-):
+def choose_likely_cause(pod_summary, node_issues, deployment_summary):
     if deployment_summary:
         top = deployment_summary[0]
 
@@ -248,12 +187,7 @@ def choose_likely_cause(
     return "No dominant incident cause detected"
 
 
-def print_incident_summary(
-    likely_cause,
-    pod_summary,
-    node_issues,
-    deployment_summary
-):
+def print_incident_summary(likely_cause, pod_summary, node_issues, deployment_summary):
     console.print("[bold cyan]Incident Summary[/bold cyan]")
     console.print()
     console.print("[bold]Most Likely Cause:[/bold]")
@@ -270,11 +204,10 @@ def print_incident_summary(
     table.add_row(
         "Failed Deployments",
         str(
-            len([
-                item for item in deployment_summary
-                if item["ready"] < item["desired"]
-            ])
-        )
+            len(
+                [item for item in deployment_summary if item["ready"] < item["desired"]]
+            )
+        ),
     )
 
     console.print()
@@ -306,7 +239,7 @@ def print_deployment_evidence(deployment_summary):
             f"{item['ready']}/{item['desired']}",
             item["revision"],
             str(item["restarts"]),
-            str(item["oom"])
+            str(item["oom"]),
         )
 
     console.print(table)
@@ -317,14 +250,10 @@ def print_pod_evidence(pod_summary):
     console.print("[bold yellow]Evidence[/bold yellow]")
 
     for name, restarts in pod_summary["restarting"][:5]:
-        console.print(
-            f"- Restart count increased: {name} ({restarts})"
-        )
+        console.print(f"- Restart count increased: {name} ({restarts})")
 
     for name, count in pod_summary["oom"][:5]:
-        console.print(
-            f"- OOMKilled events: {name} ({count})"
-        )
+        console.print(f"- OOMKilled events: {name} ({count})")
 
     for name in pod_summary["pending"][:5]:
         console.print(f"- Pending pod: {name}")

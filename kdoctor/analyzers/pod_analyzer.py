@@ -6,28 +6,16 @@ from kdoctor.utils.output import render
 
 console = Console()
 
-SYSTEM_CONTAINERS = {
-    "istio-proxy",
-    "linkerd-proxy"
-}
+SYSTEM_CONTAINERS = {"istio-proxy", "linkerd-proxy"}
 
 
-def analyze_pod(
-    pod_name: str,
-    namespace: str,
-    output_format: str = None
-):
+def analyze_pod(pod_name: str, namespace: str, output_format: str = None):
     v1 = get_core_v1()
 
     try:
-        pod = v1.read_namespaced_pod(
-            name=pod_name,
-            namespace=namespace
-        )
+        pod = v1.read_namespaced_pod(name=pod_name, namespace=namespace)
     except Exception as e:
-        console.print(
-            f"[red]Failed to fetch pod:[/red] {e}"
-        )
+        console.print(f"[red]Failed to fetch pod:[/red] {e}")
         return
 
     score, recommendations = calculate_health_score(pod)
@@ -44,7 +32,7 @@ def analyze_pod(
         "grade": get_grade(score),
         "recommendations": recommendations,
         "containers": container_data,
-        "events": events
+        "events": events,
     }
 
     if output_format and render(output_data, output_format):
@@ -54,33 +42,21 @@ def analyze_pod(
     print_container_table(pod)
 
     console.print()
-    console.print(
-        f"[bold blue]Health Score:[/bold blue] {score}/100"
-    )
+    console.print(f"[bold blue]Health Score:[/bold blue] {score}/100")
 
-    console.print(
-        f"[bold blue]Grade:[/bold blue] {get_grade(score)}"
-    )
+    console.print(f"[bold blue]Grade:[/bold blue] {get_grade(score)}")
 
     console.print()
 
     if recommendations:
-        console.print(
-            "[bold yellow]Recommendations[/bold yellow]"
-        )
+        console.print("[bold yellow]Recommendations[/bold yellow]")
 
         for item in recommendations:
             console.print(f"⚠ {item}")
     else:
-        console.print(
-            "[green]✓ No issues found[/green]"
-        )
+        console.print("[green]✓ No issues found[/green]")
 
-    print_events(
-        v1,
-        pod_name,
-        namespace
-    )
+    print_events(v1, pod_name, namespace)
 
 
 def print_pod_summary(pod, namespace):
@@ -90,41 +66,21 @@ def print_pod_summary(pod, namespace):
     table.add_column("Field", style="cyan")
     table.add_column("Value", style="green")
 
-    table.add_row(
-        "Pod Name",
-        pod.metadata.name
-    )
+    table.add_row("Pod Name", pod.metadata.name)
 
-    table.add_row(
-        "Namespace",
-        namespace
-    )
+    table.add_row("Namespace", namespace)
 
-    table.add_row(
-        "Status",
-        str(pod.status.phase)
-    )
+    table.add_row("Status", str(pod.status.phase))
 
-    table.add_row(
-        "Node",
-        str(pod.spec.node_name)
-    )
+    table.add_row("Node", str(pod.spec.node_name))
 
-    table.add_row(
-        "Pod IP",
-        str(pod.status.pod_ip)
-    )
+    table.add_row("Pod IP", str(pod.status.pod_ip))
 
     console.print(table)
 
 
 def get_container_data(pod):
-    statuses = {
-        cs.name: cs
-        for cs in (
-            pod.status.container_statuses or []
-        )
-    }
+    statuses = {cs.name: cs for cs in (pod.status.container_statuses or [])}
 
     containers = []
 
@@ -137,8 +93,8 @@ def get_container_data(pod):
                 "restarts": int(status.restart_count) if status else 0,
                 "resources": {
                     "requests": getattr(container.resources, "requests", None),
-                    "limits": getattr(container.resources, "limits", None)
-                }
+                    "limits": getattr(container.resources, "limits", None),
+                },
             }
         )
 
@@ -148,20 +104,15 @@ def get_container_data(pod):
 def collect_events(v1, pod_name, namespace):
     try:
         events = v1.list_namespaced_event(
-            namespace=namespace,
-            field_selector=(
-                f"involvedObject.name={pod_name}"
-            )
+            namespace=namespace, field_selector=(f"involvedObject.name={pod_name}")
         )
 
         sorted_events = sorted(
             events.items,
             key=lambda e: (
-                e.last_timestamp
-                or e.event_time
-                or e.metadata.creation_timestamp
+                e.last_timestamp or e.event_time or e.metadata.creation_timestamp
             ),
-            reverse=True
+            reverse=True,
         )
 
         return [
@@ -173,7 +124,7 @@ def collect_events(v1, pod_name, namespace):
                     event.last_timestamp
                     or event.event_time
                     or event.metadata.creation_timestamp
-                )
+                ),
             }
             for event in sorted_events[:10]
         ]
@@ -183,12 +134,7 @@ def collect_events(v1, pod_name, namespace):
 
 def print_container_table(pod):
 
-    statuses = {
-        cs.name: cs
-        for cs in (
-            pod.status.container_statuses or []
-        )
-    }
+    statuses = {cs.name: cs for cs in (pod.status.container_statuses or [])}
 
     table = Table(title="Containers")
 
@@ -198,27 +144,13 @@ def print_container_table(pod):
 
     for container in pod.spec.containers:
 
-        status = statuses.get(
-            container.name
-        )
+        status = statuses.get(container.name)
 
-        ready = (
-            "✓"
-            if status and status.ready
-            else "✗"
-        )
+        ready = "✓" if status and status.ready else "✗"
 
-        restarts = (
-            str(status.restart_count)
-            if status
-            else "0"
-        )
+        restarts = str(status.restart_count) if status else "0"
 
-        table.add_row(
-            container.name,
-            ready,
-            restarts
-        )
+        table.add_row(container.name, ready, restarts)
 
     console.print()
     console.print(table)
@@ -230,32 +162,20 @@ def calculate_health_score(pod):
 
     recommendations = []
 
-    statuses = {
-        cs.name: cs
-        for cs in (
-            pod.status.container_statuses or []
-        )
-    }
+    statuses = {cs.name: cs for cs in (pod.status.container_statuses or [])}
 
     for container in pod.spec.containers:
 
-        is_system_container = (
-            container.name
-            in SYSTEM_CONTAINERS
-        )
+        is_system_container = container.name in SYSTEM_CONTAINERS
 
-        status = statuses.get(
-            container.name
-        )
+        status = statuses.get(container.name)
 
         if status:
 
             if not status.ready:
                 score -= 15
 
-                recommendations.append(
-                    f"{container.name}: Container not ready"
-                )
+                recommendations.append(f"{container.name}: Container not ready")
 
             if status.restart_count > 0:
                 score -= 5
@@ -267,79 +187,50 @@ def calculate_health_score(pod):
             if status.restart_count > 5:
                 score -= 10
 
-                recommendations.append(
-                    f"{container.name}: High restart count"
-                )
+                recommendations.append(f"{container.name}: High restart count")
 
-            waiting = getattr(
-                status.state,
-                "waiting",
-                None
-            )
+            waiting = getattr(status.state, "waiting", None)
 
             if waiting:
                 score -= 20
 
-                recommendations.append(
-                    f"{container.name}: {waiting.reason}"
-                )
+                recommendations.append(f"{container.name}: {waiting.reason}")
 
         if is_system_container:
             continue
 
         resources = container.resources
 
-        requests = (
-            resources.requests
-            if resources
-            else None
-        )
+        requests = resources.requests if resources else None
 
-        limits = (
-            resources.limits
-            if resources
-            else None
-        )
+        limits = resources.limits if resources else None
 
         if not requests:
             score -= 10
 
-            recommendations.append(
-                f"{container.name}: Missing resource requests"
-            )
+            recommendations.append(f"{container.name}: Missing resource requests")
 
         if not limits:
             score -= 10
 
-            recommendations.append(
-                f"{container.name}: Missing resource limits"
-            )
+            recommendations.append(f"{container.name}: Missing resource limits")
 
         if not container.liveness_probe:
             score -= 5
 
-            recommendations.append(
-                f"{container.name}: Missing liveness probe"
-            )
+            recommendations.append(f"{container.name}: Missing liveness probe")
 
         if not container.readiness_probe:
             score -= 5
 
-            recommendations.append(
-                f"{container.name}: Missing readiness probe"
-            )
+            recommendations.append(f"{container.name}: Missing readiness probe")
 
         if not container.security_context:
             score -= 5
 
-            recommendations.append(
-                f"{container.name}: Missing security context"
-            )
+            recommendations.append(f"{container.name}: Missing security context")
 
-    score = max(
-        0,
-        min(score, 100)
-    )
+    score = max(0, min(score, 100))
 
     return score, recommendations
 
@@ -364,80 +255,59 @@ def get_grade(score):
     return "F"
 
 
-def print_events(
-    v1,
-    pod_name,
-    namespace
-):
+def print_events(v1, pod_name, namespace):
 
     try:
 
         events = v1.list_namespaced_event(
-            namespace=namespace,
-            field_selector=(
-                f"involvedObject.name={pod_name}"
-            )
+            namespace=namespace, field_selector=(f"involvedObject.name={pod_name}")
         )
 
         if not events.items:
             return
 
         console.print()
-        console.print(
-            "[bold cyan]Recent Events[/bold cyan]"
-        )
+        console.print("[bold cyan]Recent Events[/bold cyan]")
 
         sorted_events = sorted(
             events.items,
             key=lambda e: (
-                e.last_timestamp
-                or e.event_time
-                or e.metadata.creation_timestamp
+                e.last_timestamp or e.event_time or e.metadata.creation_timestamp
             ),
-            reverse=True
+            reverse=True,
         )
 
         for event in sorted_events[:10]:
 
-            console.print(
-                f"[yellow]{event.reason}[/yellow] - "
-                f"{event.message}"
-            )
+            console.print(f"[yellow]{event.reason}[/yellow] - " f"{event.message}")
 
     except Exception as e:
 
-        console.print(
-            f"[red]Unable to fetch events:[/red] {e}"
-        )
+        console.print(f"[red]Unable to fetch events:[/red] {e}")
+
 
 def analyze_all_pods(
     namespace: str,
     critical_only: bool = False,
     warning_only: bool = False,
     top: int = 0,
-    output_format: str = None
+    output_format: str = None,
 ):
 
     v1 = get_core_v1()
 
     try:
-        pods = v1.list_namespaced_pod(
-            namespace=namespace
-        )
+        pods = v1.list_namespaced_pod(namespace=namespace)
 
     except Exception as e:
 
-        console.print(
-            f"[red]Failed to fetch pods:[/red] {e}"
-        )
+        console.print(f"[red]Failed to fetch pods:[/red] {e}")
 
         return
 
     if not pods.items:
 
-        console.print(
-            f"[yellow]No pods found in namespace {namespace}[/yellow]"
-        )
+        console.print(f"[yellow]No pods found in namespace {namespace}[/yellow]")
 
         return
 
@@ -445,17 +315,13 @@ def analyze_all_pods(
 
     for pod in pods.items:
 
-        score, _ = calculate_health_score(
-            pod
-        )
+        score, _ = calculate_health_score(pod)
 
         ready_count = 0
         total_count = 0
         restarts = 0
 
-        for cs in (
-            pod.status.container_statuses or []
-        ):
+        for cs in pod.status.container_statuses or []:
 
             total_count += 1
 
@@ -474,28 +340,20 @@ def analyze_all_pods(
                 "restarts": restarts,
                 "score": score,
                 "risk": get_risk(score),
-                "grade": get_grade(score)
+                "grade": get_grade(score),
             }
         )
 
     # lowest score first
-    pod_results.sort(
-        key=lambda p: p["score"]
-    )
+    pod_results.sort(key=lambda p: p["score"])
 
     if critical_only:
 
-        pod_results = [
-            p for p in pod_results
-            if p["score"] < 70
-        ]
+        pod_results = [p for p in pod_results if p["score"] < 70]
 
     if warning_only:
 
-        pod_results = [
-            p for p in pod_results
-            if 70 <= p["score"] < 90
-        ]
+        pod_results = [p for p in pod_results if 70 <= p["score"] < 90]
 
     if top > 0:
 
@@ -505,15 +363,13 @@ def analyze_all_pods(
         {
             "namespace": namespace,
             "pods": pod_results,
-            "summary": calculate_pod_summary(pod_results)
+            "summary": calculate_pod_summary(pod_results),
         },
-        output_format
+        output_format,
     ):
         return
 
-    table = Table(
-        title=f"Pod Health Report ({namespace})"
-    )
+    table = Table(title=f"Pod Health Report ({namespace})")
 
     table.add_column("Pod")
     table.add_column("Status")
@@ -525,9 +381,7 @@ def analyze_all_pods(
 
     for pod in pod_results:
 
-        score_style = get_score_style(
-            pod["score"]
-        )
+        score_style = get_score_style(pod["score"])
 
         table.add_row(
             pod["name"],
@@ -536,45 +390,28 @@ def analyze_all_pods(
             str(pod["restarts"]),
             f"[{score_style}]{pod['score']}[/{score_style}]",
             pod["risk"],
-            pod["grade"]
+            pod["grade"],
         )
 
     console.print(table)
 
-    print_summary(
-        pod_results
-    )
+    print_summary(pod_results)
 
 
 def calculate_pod_summary(pod_results):
     total = len(pod_results)
 
-    healthy = len(
-        [
-            p for p in pod_results
-            if p["score"] >= 90
-        ]
-    )
+    healthy = len([p for p in pod_results if p["score"] >= 90])
 
-    warning = len(
-        [
-            p for p in pod_results
-            if 70 <= p["score"] < 90
-        ]
-    )
+    warning = len([p for p in pod_results if 70 <= p["score"] < 90])
 
-    critical = len(
-        [
-            p for p in pod_results
-            if p["score"] < 70
-        ]
-    )
+    critical = len([p for p in pod_results if p["score"] < 70])
 
     return {
         "total": total,
         "healthy": healthy,
         "warning": warning,
-        "critical": critical
+        "critical": critical,
     }
 
 
@@ -588,6 +425,7 @@ def get_risk(score):
 
     return "HIGH"
 
+
 def get_score_style(score):
 
     if score >= 90:
@@ -598,45 +436,23 @@ def get_score_style(score):
 
     return "red"
 
+
 def print_summary(results):
 
     total = len(results)
 
-    healthy = len(
-        [
-            p for p in results
-            if p["score"] >= 90
-        ]
-    )
+    healthy = len([p for p in results if p["score"] >= 90])
 
-    warning = len(
-        [
-            p for p in results
-            if 70 <= p["score"] < 90
-        ]
-    )
+    warning = len([p for p in results if 70 <= p["score"] < 90])
 
-    critical = len(
-        [
-            p for p in results
-            if p["score"] < 70
-        ]
-    )
+    critical = len([p for p in results if p["score"] < 70])
 
     console.print()
 
-    console.print(
-        f"[green]Healthy:[/green] {healthy}"
-    )
+    console.print(f"[green]Healthy:[/green] {healthy}")
 
-    console.print(
-        f"[yellow]Warning:[/yellow] {warning}"
-    )
+    console.print(f"[yellow]Warning:[/yellow] {warning}")
 
-    console.print(
-        f"[red]Critical:[/red] {critical}"
-    )
+    console.print(f"[red]Critical:[/red] {critical}")
 
-    console.print(
-        f"[blue]Total:[/blue] {total}"
-    )
+    console.print(f"[blue]Total:[/blue] {total}")

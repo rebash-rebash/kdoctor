@@ -11,15 +11,12 @@ def metadata(name, namespace="default", labels=None, uid=None, annotations=None)
         namespace=namespace,
         labels=labels or {},
         uid=uid,
-        annotations=annotations or {}
+        annotations=annotations or {},
     )
 
 
 def resource_requirements(requests=None, limits=None):
-    return obj(
-        requests=requests,
-        limits=limits
-    )
+    return obj(requests=requests, limits=limits)
 
 
 def container(
@@ -32,7 +29,7 @@ def container(
     liveness_probe=True,
     readiness_probe=True,
     startup_probe=True,
-    security_context=None
+    security_context=None,
 ):
     return obj(
         name=name,
@@ -43,7 +40,7 @@ def container(
         liveness_probe=liveness_probe,
         readiness_probe=readiness_probe,
         startup_probe=startup_probe,
-        security_context=security_context
+        security_context=security_context,
     )
 
 
@@ -54,7 +51,7 @@ def deployment(
     replicas=2,
     containers=None,
     pod_security_context=None,
-    selector=None
+    selector=None,
 ):
     return obj(
         metadata=metadata(name, namespace, uid=uid),
@@ -64,44 +61,28 @@ def deployment(
             template=obj(
                 spec=obj(
                     containers=containers or [container()],
-                    security_context=pod_security_context
+                    security_context=pod_security_context,
                 )
-            )
+            ),
         ),
-        status=obj(ready_replicas=replicas)
+        status=obj(ready_replicas=replicas),
     )
 
 
-def replicaset(
-    name="api-abc123",
-    replicas=2,
-    containers=None,
-    revision="1"
-):
+def replicaset(name="api-abc123", replicas=2, containers=None, revision="1"):
     return obj(
         metadata=metadata(
-            name,
-            annotations={
-                "deployment.kubernetes.io/revision": revision
-            }
+            name, annotations={"deployment.kubernetes.io/revision": revision}
         ),
         spec=obj(
             replicas=replicas,
-            template=obj(
-                spec=obj(
-                    containers=containers or [container()]
-                )
-            )
-        )
+            template=obj(spec=obj(containers=containers or [container()])),
+        ),
     )
 
 
 def env(name, value=None, value_from=None):
-    return obj(
-        name=name,
-        value=value,
-        value_from=value_from
-    )
+    return obj(name=name, value=value, value_from=value_from)
 
 
 def configmap_key_ref(name, key):
@@ -109,7 +90,7 @@ def configmap_key_ref(name, key):
         config_map_key_ref=obj(name=name, key=key),
         secret_key_ref=None,
         field_ref=None,
-        resource_field_ref=None
+        resource_field_ref=None,
     )
 
 
@@ -118,5 +99,5 @@ def secret_key_ref(name, key):
         config_map_key_ref=None,
         secret_key_ref=obj(name=name, key=key),
         field_ref=None,
-        resource_field_ref=None
+        resource_field_ref=None,
     )

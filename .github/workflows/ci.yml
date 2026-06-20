@@ -28,7 +28,7 @@ jobs:
           pip install -r dev-requirements.txt
       - name: Run formatting checks
         run: |
-          black --check .
+          black --check --target-version py310 .
           isort --check-only .
       - name: Run lint
         run: |

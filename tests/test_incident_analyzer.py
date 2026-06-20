@@ -1,5 +1,5 @@
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
 
 from kdoctor.analyzers import incident_analyzer
 
@@ -14,37 +14,25 @@ def metadata(name, namespace="default", labels=None, uid=None, annotations=None)
         namespace=namespace,
         labels=labels or {},
         uid=uid,
-        annotations=annotations or {}
+        annotations=annotations or {},
     )
 
 
 def pod(name, namespace, labels, restarts=0, oom=False, phase="Running"):
-    terminated = (
-        obj(reason="OOMKilled", exit_code=137)
-        if oom else None
-    )
-    status = obj(
-        restart_count=restarts,
-        last_state=obj(terminated=terminated)
-    )
+    terminated = obj(reason="OOMKilled", exit_code=137) if oom else None
+    status = obj(restart_count=restarts, last_state=obj(terminated=terminated))
 
     return obj(
         metadata=metadata(name, namespace, labels),
-        status=obj(
-            phase=phase,
-            container_statuses=[status]
-        )
+        status=obj(phase=phase, container_statuses=[status]),
     )
 
 
 def deployment(name, namespace, uid, selector, replicas=2, ready=2):
     return obj(
         metadata=metadata(name, namespace, uid=uid),
-        spec=obj(
-            replicas=replicas,
-            selector=obj(match_labels=selector)
-        ),
-        status=obj(ready_replicas=ready)
+        spec=obj(replicas=replicas, selector=obj(match_labels=selector)),
+        status=obj(ready_replicas=ready),
     )
 
 
@@ -53,9 +41,7 @@ def replicaset(name, owner_uid, revision):
         metadata=obj(
             name=name,
             owner_references=[obj(uid=owner_uid)],
-            annotations={
-                "deployment.kubernetes.io/revision": str(revision)
-            }
+            annotations={"deployment.kubernetes.io/revision": str(revision)},
         )
     )
 
@@ -65,13 +51,12 @@ class IncidentAnalyzerTest(unittest.TestCase):
         self.assertTrue(
             incident_analyzer.labels_match(
                 {"app": "api", "tier": "backend"},
-                {"app": "api", "tier": "backend", "env": "prod"}
+                {"app": "api", "tier": "backend", "env": "prod"},
             )
         )
         self.assertFalse(
             incident_analyzer.labels_match(
-                {"app": "api", "tier": "backend"},
-                {"app": "api"}
+                {"app": "api", "tier": "backend"}, {"app": "api"}
             )
         )
 
@@ -82,23 +67,13 @@ class IncidentAnalyzerTest(unittest.TestCase):
             "deploy-1",
             {"app": "payment-api"},
             replicas=3,
-            ready=2
+            ready=2,
         )
         worker = deployment(
-            "worker",
-            "services",
-            "deploy-2",
-            {"app": "worker"},
-            replicas=1,
-            ready=1
+            "worker", "services", "deploy-2", {"app": "worker"}, replicas=1, ready=1
         )
         unrelated = deployment(
-            "web",
-            "default",
-            "deploy-3",
-            {"app": "web"},
-            replicas=1,
-            ready=1
+            "web", "default", "deploy-3", {"app": "web"}, replicas=1, ready=1
         )
 
         pods = [
@@ -107,31 +82,19 @@ class IncidentAnalyzerTest(unittest.TestCase):
                 "services",
                 {"app": "payment-api"},
                 restarts=4,
-                oom=True
+                oom=True,
             ),
-            pod(
-                "worker-1",
-                "services",
-                {"app": "worker"},
-                restarts=0
-            ),
-            pod(
-                "payment-api-default",
-                "default",
-                {"app": "payment-api"},
-                restarts=9
-            )
+            pod("worker-1", "services", {"app": "worker"}, restarts=0),
+            pod("payment-api-default", "default", {"app": "payment-api"}, restarts=9),
         ]
         replicasets = [
             replicaset("payment-api-36", "deploy-1", 36),
             replicaset("payment-api-38", "deploy-1", 38),
-            replicaset("worker-7", "deploy-2", 7)
+            replicaset("worker-7", "deploy-2", 7),
         ]
 
         reports = incident_analyzer.analyze_deployments(
-            [api, worker, unrelated],
-            pods,
-            replicasets
+            [api, worker, unrelated], pods, replicasets
         )
 
         self.assertEqual(len(reports), 1)
@@ -151,14 +114,13 @@ class IncidentAnalyzerTest(unittest.TestCase):
                     "name": "services/payment-api",
                     "revision": "42",
                     "restarts": 3,
-                    "oom": 1
+                    "oom": 1,
                 }
-            ]
+            ],
         )
 
         self.assertEqual(
-            cause,
-            "Recent rollout or regression in services/payment-api revision 42"
+            cause, "Recent rollout or regression in services/payment-api revision 42"
         )
 
 

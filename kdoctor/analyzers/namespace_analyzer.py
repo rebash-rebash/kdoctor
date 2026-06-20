@@ -3,21 +3,12 @@ from typing import Optional
 from rich.table import Table
 
 from kdoctor.clients.kube_client import get_apps_v1, get_core_v1
-from kdoctor.utils.kube import (
-    deployment_pods,
-    is_crash_looping,
-    missing_resource_counts,
-    oom_events,
-    ready_containers,
-    total_restarts
-)
+from kdoctor.utils.kube import (deployment_pods, is_crash_looping,
+                                missing_resource_counts, oom_events,
+                                ready_containers, total_restarts)
 from kdoctor.utils.output import console, render
-from kdoctor.utils.risk import (
-    RecommendationEngine,
-    RiskEngine,
-    risk_from_score,
-    score_style
-)
+from kdoctor.utils.risk import (RecommendationEngine, RiskEngine,
+                                risk_from_score, score_style)
 
 
 def analyze_namespace(namespace, output_format: Optional[str] = None):
@@ -28,16 +19,10 @@ def investigate_namespace(namespace, output_format: Optional[str] = None):
     try:
         core = get_core_v1()
         apps = get_apps_v1()
-        deployments = apps.list_namespaced_deployment(
-            namespace=namespace
-        ).items
-        pods = core.list_namespaced_pod(
-            namespace=namespace
-        ).items
+        deployments = apps.list_namespaced_deployment(namespace=namespace).items
+        pods = core.list_namespaced_pod(namespace=namespace).items
     except Exception as e:
-        console.print(
-            f"[red]Failed to investigate namespace:[/red] {e}"
-        )
+        console.print(f"[red]Failed to investigate namespace:[/red] {e}")
         return
 
     deployment_reports = [
@@ -46,10 +31,7 @@ def investigate_namespace(namespace, output_format: Optional[str] = None):
     ]
 
     pod_report = build_pod_inventory(pods)
-    summary = score_namespace(
-        deployment_reports,
-        pod_report
-    )
+    summary = score_namespace(deployment_reports, pod_report)
 
     if output_format:
         payload = {
@@ -62,13 +44,7 @@ def investigate_namespace(namespace, output_format: Optional[str] = None):
         render(payload, output_format)
         return
 
-    print_namespace_summary(
-        namespace,
-        deployments,
-        pods,
-        summary,
-        pod_report
-    )
+    print_namespace_summary(namespace, deployments, pods, summary, pod_report)
     print_deployment_inventory(deployment_reports)
     print_pod_inventory(pods)
     print_restart_hotspots(deployment_reports)
@@ -87,9 +63,7 @@ def build_deployment_report(core, deployment, namespace):
     not_ready = 0
 
     for pod in pods:
-        pod_missing_requests, pod_missing_limits = (
-            missing_resource_counts(pod)
-        )
+        pod_missing_requests, pod_missing_limits = missing_resource_counts(pod)
         ready, total = ready_containers(pod)
 
         missing_requests += pod_missing_requests
@@ -105,24 +79,14 @@ def build_deployment_report(core, deployment, namespace):
 
     risk = RiskEngine()
     risk.penalize(
-        20 if ready_replicas < desired else 0,
-        "Deployment has unavailable replicas"
+        20 if ready_replicas < desired else 0, "Deployment has unavailable replicas"
     )
-    risk.penalize(
-        min(restarts * 2, 25),
-        "Pods are restarting"
-    )
-    risk.penalize(
-        oom_count * 10,
-        "OOMKilled containers detected"
-    )
-    risk.penalize(
-        crash_looping * 25,
-        "CrashLoopBackOff detected"
-    )
+    risk.penalize(min(restarts * 2, 25), "Pods are restarting")
+    risk.penalize(oom_count * 10, "OOMKilled containers detected")
+    risk.penalize(crash_looping * 25, "CrashLoopBackOff detected")
     risk.penalize(
         min((missing_requests + missing_limits) * 4, 20),
-        "Resource requests or limits are missing"
+        "Resource requests or limits are missing",
     )
 
     result = risk.result()
@@ -141,7 +105,7 @@ def build_deployment_report(core, deployment, namespace):
         "not_ready": not_ready,
         "score": result["score"],
         "risk": result["risk"],
-        "reasons": result["reasons"]
+        "reasons": result["reasons"],
     }
 
 
@@ -161,9 +125,7 @@ def build_pod_inventory(pods):
         oom_count += oom_events(pod)
         crash_looping += 1 if is_crash_looping(pod) else 0
 
-        pod_missing_requests, pod_missing_limits = (
-            missing_resource_counts(pod)
-        )
+        pod_missing_requests, pod_missing_limits = missing_resource_counts(pod)
         ready, total = ready_containers(pod)
 
         missing_requests += pod_missing_requests
@@ -177,7 +139,7 @@ def build_pod_inventory(pods):
         "crash_looping": crash_looping,
         "missing_requests": missing_requests,
         "missing_limits": missing_limits,
-        "not_ready": not_ready
+        "not_ready": not_ready,
     }
 
 
@@ -190,52 +152,37 @@ def score_namespace(deployment_reports, pod_report):
 
     risk.penalize(pending * 5, "Pending pods detected")
     risk.penalize(failed * 10, "Failed pods detected")
+    risk.penalize(min(pod_report["restarts"], 30), "Restart activity detected")
+    risk.penalize(pod_report["oom"] * 10, "OOMKilled events detected")
+    risk.penalize(pod_report["crash_looping"] * 20, "CrashLoopBackOff pods detected")
     risk.penalize(
-        min(pod_report["restarts"], 30),
-        "Restart activity detected"
-    )
-    risk.penalize(
-        pod_report["oom"] * 10,
-        "OOMKilled events detected"
-    )
-    risk.penalize(
-        pod_report["crash_looping"] * 20,
-        "CrashLoopBackOff pods detected"
-    )
-    risk.penalize(
-        min(
-            (
-                pod_report["missing_requests"]
-                + pod_report["missing_limits"]
-            ) * 2,
-            20
-        ),
-        "Resource governance gaps detected"
+        min((pod_report["missing_requests"] + pod_report["missing_limits"]) * 2, 20),
+        "Resource governance gaps detected",
     )
 
     recommendations.add(
         pod_report["restarts"] > 0,
-        "Inspect top restarting deployments and recent rollout changes."
+        "Inspect top restarting deployments and recent rollout changes.",
     )
     recommendations.add(
         pod_report["oom"] > 0,
-        "Review memory limits, memory requests, and recent memory usage."
+        "Review memory limits, memory requests, and recent memory usage.",
     )
     recommendations.add(
         pod_report["crash_looping"] > 0,
-        "Check CrashLoopBackOff pod logs and startup dependencies."
+        "Check CrashLoopBackOff pod logs and startup dependencies.",
     )
     recommendations.add(
         pod_report["missing_requests"] > 0,
-        "Add CPU and memory requests to application containers."
+        "Add CPU and memory requests to application containers.",
     )
     recommendations.add(
         pod_report["missing_limits"] > 0,
-        "Add CPU and memory limits for predictable failure behavior."
+        "Add CPU and memory limits for predictable failure behavior.",
     )
     recommendations.add(
         any(report["ready"] < report["desired"] for report in deployment_reports),
-        "Prioritize deployments with unavailable replicas."
+        "Prioritize deployments with unavailable replicas.",
     )
 
     result = risk.result()
@@ -244,17 +191,9 @@ def score_namespace(deployment_reports, pod_report):
     return result
 
 
-def print_namespace_summary(
-    namespace,
-    deployments,
-    pods,
-    summary,
-    pod_report
-):
+def print_namespace_summary(namespace, deployments, pods, summary, pod_report):
     score = summary["score"]
-    table = Table(
-        title=f"Namespace Investigation ({namespace})"
-    )
+    table = Table(title=f"Namespace Investigation ({namespace})")
     table.add_column("Metric", style="cyan")
     table.add_column("Value")
 
@@ -264,18 +203,9 @@ def print_namespace_summary(
     table.add_row("Pods", str(len(pods)))
     table.add_row("Restarts", str(pod_report["restarts"]))
     table.add_row("OOM Events", str(pod_report["oom"]))
-    table.add_row(
-        "CrashLoopBackOff Pods",
-        str(pod_report["crash_looping"])
-    )
-    table.add_row(
-        "Missing Requests",
-        str(pod_report["missing_requests"])
-    )
-    table.add_row(
-        "Missing Limits",
-        str(pod_report["missing_limits"])
-    )
+    table.add_row("CrashLoopBackOff Pods", str(pod_report["crash_looping"]))
+    table.add_row("Missing Requests", str(pod_report["missing_requests"]))
+    table.add_row("Missing Limits", str(pod_report["missing_limits"]))
 
     console.print(table)
 
@@ -299,7 +229,7 @@ def print_deployment_inventory(reports):
             str(report["restarts"]),
             str(report["oom"]),
             f"[{score_style(score)}]{score}[/]",
-            report["risk"]
+            report["risk"],
         )
 
     console.print()
@@ -321,7 +251,7 @@ def print_pod_inventory(pods):
             str(pod.status.phase),
             f"{ready}/{total}",
             str(total_restarts(pod)),
-            str(pod.spec.node_name or "-")
+            str(pod.spec.node_name or "-"),
         )
 
     console.print()
@@ -329,14 +259,8 @@ def print_pod_inventory(pods):
 
 
 def print_restart_hotspots(reports):
-    hotspots = [
-        report for report in reports
-        if report["restarts"] > 0
-    ]
-    hotspots.sort(
-        key=lambda item: item["restarts"],
-        reverse=True
-    )
+    hotspots = [report for report in reports if report["restarts"] > 0]
+    hotspots.sort(key=lambda item: item["restarts"], reverse=True)
 
     console.print()
     console.print("[bold yellow]Top Restarting Deployments[/bold yellow]")
@@ -346,20 +270,12 @@ def print_restart_hotspots(reports):
         return
 
     for report in hotspots[:5]:
-        console.print(
-            f"- {report['name']}: {report['restarts']} restarts"
-        )
+        console.print(f"- {report['name']}: {report['restarts']} restarts")
 
 
 def print_oom_hotspots(reports):
-    hotspots = [
-        report for report in reports
-        if report["oom"] > 0
-    ]
-    hotspots.sort(
-        key=lambda item: item["oom"],
-        reverse=True
-    )
+    hotspots = [report for report in reports if report["oom"] > 0]
+    hotspots.sort(key=lambda item: item["oom"], reverse=True)
 
     console.print()
     console.print("[bold yellow]OOM Events[/bold yellow]")
@@ -369,19 +285,14 @@ def print_oom_hotspots(reports):
         return
 
     for report in hotspots[:5]:
-        console.print(
-            f"- {report['name']}: {report['oom']} OOM events"
-        )
+        console.print(f"- {report['name']}: {report['oom']} OOM events")
 
 
 def print_top_problematic_workloads(reports):
     console.print()
     console.print("[bold red]Top Problematic Workloads[/bold red]")
 
-    problematic = [
-        report for report in reports
-        if report["score"] < 90
-    ]
+    problematic = [report for report in reports if report["score"] < 90]
     problematic.sort(key=lambda item: item["score"])
 
     if not problematic:
@@ -390,9 +301,7 @@ def print_top_problematic_workloads(reports):
 
     for report in problematic[:5]:
         reasons = ", ".join(report["reasons"][:2])
-        console.print(
-            f"- {report['name']}: {report['score']}/100 ({reasons})"
-        )
+        console.print(f"- {report['name']}: {report['score']}/100 ({reasons})")
 
 
 def print_recommendations(recommendations):

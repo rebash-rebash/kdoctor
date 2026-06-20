@@ -37,11 +37,7 @@ class RiskEngine:
     def result(self):
         score = clamp_score(self.score)
 
-        return {
-            "score": score,
-            "risk": risk_from_score(score),
-            "reasons": self.reasons
-        }
+        return {"score": score, "risk": risk_from_score(score), "reasons": self.reasons}
 
 
 class RecommendationEngine:

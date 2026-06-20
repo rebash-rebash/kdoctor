@@ -1,25 +1,16 @@
-SYSTEM_CONTAINERS = {
-    "istio-proxy",
-    "linkerd-proxy"
-}
+SYSTEM_CONTAINERS = {"istio-proxy", "linkerd-proxy"}
 
 
 def label_selector(match_labels):
     if not match_labels:
         return ""
 
-    return ",".join(
-        f"{key}={value}"
-        for key, value in match_labels.items()
-    )
+    return ",".join(f"{key}={value}" for key, value in match_labels.items())
 
 
 def revision_number(resource):
     annotations = resource.metadata.annotations or {}
-    revision = annotations.get(
-        "deployment.kubernetes.io/revision",
-        "0"
-    )
+    revision = annotations.get("deployment.kubernetes.io/revision", "0")
 
     try:
         return int(revision)
@@ -42,35 +33,21 @@ def owned_by(resource, owner_uid):
 
 def deployment_replicasets(apps, deployment, namespace):
     replicasets = apps.list_namespaced_replica_set(namespace).items
-    owned = [
-        rs for rs in replicasets
-        if owned_by(rs, deployment.metadata.uid)
-    ]
+    owned = [rs for rs in replicasets if owned_by(rs, deployment.metadata.uid)]
 
-    owned.sort(
-        key=lambda rs: revision_number(rs),
-        reverse=True
-    )
+    owned.sort(key=lambda rs: revision_number(rs), reverse=True)
 
     return owned
 
 
 def deployment_pods(core, deployment, namespace):
-    selector = label_selector(
-        deployment.spec.selector.match_labels
-    )
+    selector = label_selector(deployment.spec.selector.match_labels)
 
-    return core.list_namespaced_pod(
-        namespace=namespace,
-        label_selector=selector
-    ).items
+    return core.list_namespaced_pod(namespace=namespace, label_selector=selector).items
 
 
 def total_restarts(pod):
-    return sum(
-        status.restart_count
-        for status in pod.status.container_statuses or []
-    )
+    return sum(status.restart_count for status in pod.status.container_statuses or [])
 
 
 def ready_containers(pod):
@@ -98,10 +75,7 @@ def oom_events(pod):
         if not terminated:
             continue
 
-        if (
-            terminated.reason == "OOMKilled"
-            or terminated.exit_code == 137
-        ):
+        if terminated.reason == "OOMKilled" or terminated.exit_code == 137:
             count += 1
 
     return count

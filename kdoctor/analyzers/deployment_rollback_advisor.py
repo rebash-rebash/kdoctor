@@ -3,39 +3,23 @@ from typing import Optional
 from rich.table import Table
 
 from kdoctor.clients.kube_client import get_apps_v1, get_core_v1
-from kdoctor.utils.kube import (
-    deployment_pods,
-    deployment_replicasets,
-    oom_events,
-    revision_label,
-    revision_number,
-    total_restarts
-)
+from kdoctor.utils.kube import (deployment_pods, deployment_replicasets,
+                                oom_events, revision_label, revision_number,
+                                total_restarts)
 from kdoctor.utils.output import console, render
 
 
 def advise_rollback(
-    deployment_name: str,
-    namespace: str,
-    output_format: Optional[str] = None
+    deployment_name: str, namespace: str, output_format: Optional[str] = None
 ):
     try:
         apps = get_apps_v1()
         core = get_core_v1()
-        deployment = apps.read_namespaced_deployment(
-            deployment_name,
-            namespace
-        )
-        replicasets = deployment_replicasets(
-            apps,
-            deployment,
-            namespace
-        )
+        deployment = apps.read_namespaced_deployment(deployment_name, namespace)
+        replicasets = deployment_replicasets(apps, deployment, namespace)
         pods = deployment_pods(core, deployment, namespace)
     except Exception as e:
-        console.print(
-            f"[red]Failed to analyze rollback safety:[/red] {e}"
-        )
+        console.print(f"[red]Failed to analyze rollback safety:[/red] {e}")
         return
 
     if len(replicasets) < 2:
@@ -63,13 +47,7 @@ def advise_rollback(
         render(payload, output_format)
         return
 
-    print_rollback_summary(
-        safe,
-        deployment,
-        current,
-        previous,
-        reasons
-    )
+    print_rollback_summary(safe, deployment, current, previous, reasons)
 
 
 def build_rollback_reasons(current, previous, pods):
@@ -90,26 +68,14 @@ def build_rollback_reasons(current, previous, pods):
     if current_container.image != previous_container.image:
         reasons.append("Container image changed")
 
-    if (
-        resource_requests(current_container)
-        != resource_requests(previous_container)
-    ):
+    if resource_requests(current_container) != resource_requests(previous_container):
         reasons.append("Resource requests changed")
 
-    if (
-        resource_limits(current_container)
-        != resource_limits(previous_container)
-    ):
+    if resource_limits(current_container) != resource_limits(previous_container):
         reasons.append("Resource limits changed")
 
-    current_env = {
-        env.name: env.value
-        for env in current_container.env or []
-    }
-    previous_env = {
-        env.name: env.value
-        for env in previous_container.env or []
-    }
+    current_env = {env.name: env.value for env in current_container.env or []}
+    previous_env = {env.name: env.value for env in previous_container.env or []}
 
     if current_env != previous_env:
         reasons.append("Environment variables changed")
@@ -150,47 +116,23 @@ def is_safe_to_rollback(deployment, pods, reasons):
     return True
 
 
-def print_rollback_summary(
-    safe,
-    deployment,
-    current,
-    previous,
-    reasons
-):
+def print_rollback_summary(safe, deployment, current, previous, reasons):
     status = "SAFE TO ROLLBACK" if safe else "ROLLBACK NEEDS REVIEW"
     status_style = "green" if safe else "yellow"
 
-    console.print(
-        f"[bold {status_style}]{status}[/bold {status_style}]"
-    )
+    console.print(f"[bold {status_style}]{status}[/bold {status_style}]")
     console.print()
-    console.print(
-        f"Current Revision: {revision_label(current)}"
-    )
-    console.print(
-        f"Recommended Revision: {revision_label(previous)}"
-    )
+    console.print(f"Current Revision: {revision_label(current)}")
+    console.print(f"Recommended Revision: {revision_label(previous)}")
 
     table = Table(title="Safety Assessment")
     table.add_column("Field")
     table.add_column("Value")
     table.add_row("Deployment", deployment.metadata.name)
-    table.add_row(
-        "Desired Replicas",
-        str(deployment.spec.replicas or 0)
-    )
-    table.add_row(
-        "Available Replicas",
-        str(deployment.status.available_replicas or 0)
-    )
-    table.add_row(
-        "Current Revision",
-        str(revision_number(current))
-    )
-    table.add_row(
-        "Rollback Target",
-        str(revision_number(previous))
-    )
+    table.add_row("Desired Replicas", str(deployment.spec.replicas or 0))
+    table.add_row("Available Replicas", str(deployment.status.available_replicas or 0))
+    table.add_row("Current Revision", str(revision_number(current)))
+    table.add_row("Rollback Target", str(revision_number(previous)))
 
     console.print()
     console.print(table)

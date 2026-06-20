@@ -1,7 +1,7 @@
 import typer
 
-from kdoctor.analyzers.namespace_analyzer import analyze_namespace
-from kdoctor.analyzers.namespace_analyzer import investigate_namespace
+from kdoctor.analyzers.namespace_analyzer import (analyze_namespace,
+                                                  investigate_namespace)
 
 namespace = typer.Typer()
 
@@ -10,11 +10,8 @@ namespace = typer.Typer()
 def analyze(
     name: str,
     output: str = typer.Option(
-        None,
-        "--output",
-        "-o",
-        help="Output format: json or yaml"
-    )
+        None, "--output", "-o", help="Output format: json or yaml"
+    ),
 ):
     analyze_namespace(name, output)
 
@@ -23,10 +20,7 @@ def analyze(
 def investigate(
     name: str,
     output: str = typer.Option(
-        None,
-        "--output",
-        "-o",
-        help="Output format: json or yaml"
-    )
+        None, "--output", "-o", help="Output format: json or yaml"
+    ),
 ):
     investigate_namespace(name, output)

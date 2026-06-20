@@ -1,24 +1,36 @@
 import os
 from typing import List
-from pydantic import BaseModel, Field
+
 from google import genai
 from google.genai import types
+from pydantic import BaseModel, Field
+
 
 # 1. Maintain your exact production-grade data schema
 class LogAnalysis(BaseModel):
-    service_name: str = Field(description="The microservice or component that threw the error.")
+    service_name: str = Field(
+        description="The microservice or component that threw the error."
+    )
     severity: str = Field(description="CRITICAL, WARNING, or INFO based on the impact.")
-    root_cause_summary: str = Field(description="A concise, 1-sentence breakdown of why the failure occurred.")
-    impacted_dependencies: List[str] = Field(description="List of database, internal APIs, or cloud services impacted.")
-    suggested_remediation: str = Field(description="Exact SRE action items to resolve this specific stack trace.")
+    root_cause_summary: str = Field(
+        description="A concise, 1-sentence breakdown of why the failure occurred."
+    )
+    impacted_dependencies: List[str] = Field(
+        description="List of database, internal APIs, or cloud services impacted."
+    )
+    suggested_remediation: str = Field(
+        description="Exact SRE action items to resolve this specific stack trace."
+    )
+
 
 # 2. Initialize the modern Gemini client (automatically picks up GEMINI_API_KEY env var)
 client = genai.Client()
 
+
 def analyze_stack_trace_gemini(raw_log: str) -> LogAnalysis:
     # We use gemini-2.5-flash as it is lightning fast and perfect for structured task automation
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model="gemini-2.5-flash",
         contents=f"Raw Log Data:\n{raw_log}",
         config=types.GenerateContentConfig(
             system_instruction=(
@@ -33,9 +45,10 @@ def analyze_stack_trace_gemini(raw_log: str) -> LogAnalysis:
             response_schema=LogAnalysis,
         ),
     )
-    
+
     # The SDK automatically validates the JSON string and parses it directly into your Pydantic object
     return response.parsed, response.usage_metadata
+
 
 if __name__ == "__main__":
     # Sample malfunctioning log
@@ -52,7 +65,7 @@ if __name__ == "__main__":
 
     print("Sending trace to Gemini SRE Engine...\n")
     analysis_result, usage = analyze_stack_trace_gemini(sample_malfunctioning_log)
-    
+
     # Output the structured fields
     print(f"Service Detected: {analysis_result.service_name}")
     print(f"Severity:         {analysis_result.severity}")
@@ -61,4 +74,3 @@ if __name__ == "__main__":
     print(f"Remediation:      {analysis_result.suggested_remediation}")
     print(f"Prompt Token Count: {usage.prompt_token_count}")
     print(f"Candidates Token Count: {usage.candidates_token_count}")
-

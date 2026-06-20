@@ -1,22 +1,19 @@
-from rich.table import Table
 from typing import Optional
+
+from rich.table import Table
 
 from kdoctor.analyzers.pod_analyzer import calculate_health_score
 from kdoctor.clients.kube_client import get_apps_v1, get_core_v1
 from kdoctor.utils.output import console, render
 
-
-SYSTEM_CONTAINERS = {
-    "istio-proxy",
-    "linkerd-proxy"
-}
+SYSTEM_CONTAINERS = {"istio-proxy", "linkerd-proxy"}
 
 
 def investigate_deployment(
     deployment_name: str,
     namespace: str,
     deep: bool = False,
-    output_format: Optional[str] = None
+    output_format: Optional[str] = None,
 ):
 
     apps = get_apps_v1()
@@ -24,54 +21,27 @@ def investigate_deployment(
 
     try:
 
-        deployment = (
-            apps.read_namespaced_deployment(
-                deployment_name,
-                namespace
-            )
-        )
+        deployment = apps.read_namespaced_deployment(deployment_name, namespace)
 
     except Exception as e:
 
-        console.print(
-            f"[red]Failed to fetch deployment:[/red] {e}"
-        )
+        console.print(f"[red]Failed to fetch deployment:[/red] {e}")
 
         return
 
-    selector = (
-        deployment.spec.selector.match_labels
-    )
+    selector = deployment.spec.selector.match_labels
 
-    label_selector = ",".join(
-        [
-            f"{k}={v}"
-            for k, v in selector.items()
-        ]
-    )
+    label_selector = ",".join([f"{k}={v}" for k, v in selector.items()])
 
-    pods = v1.list_namespaced_pod(
-        namespace=namespace,
-        label_selector=label_selector
-    )
+    pods = v1.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
 
-    desired = (
-        deployment.spec.replicas or 0
-    )
+    desired = deployment.spec.replicas or 0
 
-    ready = (
-        deployment.status.ready_replicas or 0
-    )
+    ready = deployment.status.ready_replicas or 0
 
-    updated = (
-        deployment.status.updated_replicas or 0
-    )
+    updated = deployment.status.updated_replicas or 0
 
-    pod_analysis = analyze_deployment_pods(
-        pods.items,
-        deep,
-        quiet=bool(output_format)
-    )
+    pod_analysis = analyze_deployment_pods(pods.items, deep, quiet=bool(output_format))
 
     if output_format and render(
         {
@@ -80,83 +50,48 @@ def investigate_deployment(
             "desired": desired,
             "ready": ready,
             "updated": updated,
-            "pods": pod_analysis
+            "pods": pod_analysis,
         },
-        output_format
+        output_format,
     ):
         return
 
-    print_deployment_header(
-        deployment_name,
-        namespace,
-        desired,
-        ready,
-        updated
-    )
+    print_deployment_header(deployment_name, namespace, desired, ready, updated)
 
 
-def print_deployment_header(
-    deployment_name,
-    namespace,
-    desired,
-    ready,
-    updated
-):
+def print_deployment_header(deployment_name, namespace, desired, ready, updated):
 
-    table = Table(
-        title="Deployment Investigation"
-    )
+    table = Table(title="Deployment Investigation")
 
     table.add_column("Field")
     table.add_column("Value")
 
-    table.add_row(
-        "Deployment",
-        deployment_name
-    )
+    table.add_row("Deployment", deployment_name)
 
-    table.add_row(
-        "Namespace",
-        namespace
-    )
+    table.add_row("Namespace", namespace)
 
-    table.add_row(
-        "Desired Replicas",
-        str(desired)
-    )
+    table.add_row("Desired Replicas", str(desired))
 
-    table.add_row(
-        "Ready Replicas",
-        str(ready)
-    )
+    table.add_row("Ready Replicas", str(ready))
 
-    table.add_row(
-        "Updated Replicas",
-        str(updated)
-    )
+    table.add_row("Updated Replicas", str(updated))
 
     console.print(table)
 
 
-def analyze_deployment_pods(
-    pods,
-    deep=False,
-    quiet=False
-):
+def analyze_deployment_pods(pods, deep=False, quiet=False):
 
     if not pods:
 
         if not quiet:
-            console.print(
-                "[yellow]No pods found[/yellow]"
-            )
+            console.print("[yellow]No pods found[/yellow]")
 
         return {
             "total": 0,
             "healthy": 0,
             "warning": 0,
             "critical": 0,
-            "operational_score": 100
+            "operational_score": 100,
         }
 
     healthy = 0
@@ -178,9 +113,7 @@ def analyze_deployment_pods(
 
     for pod in pods:
 
-        statuses = (
-            pod.status.container_statuses or []
-        )
+        statuses = pod.status.container_statuses or []
 
         pod_has_restart = False
         pod_not_ready = False
@@ -190,9 +123,7 @@ def analyze_deployment_pods(
 
         for status in statuses:
 
-            restart_count += (
-                status.restart_count
-            )
+            restart_count += status.restart_count
 
             if status.restart_count > 0:
                 pod_has_restart = True
@@ -201,22 +132,14 @@ def analyze_deployment_pods(
                 pod_not_ready = True
                 pod_critical = True
 
-            waiting = getattr(
-                status.state,
-                "waiting",
-                None
-            )
+            waiting = getattr(status.state, "waiting", None)
 
-            if (
-                waiting
-                and waiting.reason in
-                [
-                    "CrashLoopBackOff",
-                    "ImagePullBackOff",
-                    "ErrImagePull",
-                    "CreateContainerConfigError"
-                ]
-            ):
+            if waiting and waiting.reason in [
+                "CrashLoopBackOff",
+                "ImagePullBackOff",
+                "ErrImagePull",
+                "CreateContainerConfigError",
+            ]:
                 pod_critical = True
 
         if restart_count > highest_restart_count:
@@ -246,95 +169,59 @@ def analyze_deployment_pods(
 
         for container in pod.spec.containers:
 
-            if (
-                container.name
-                in SYSTEM_CONTAINERS
-            ):
+            if container.name in SYSTEM_CONTAINERS:
                 continue
 
-            requests = (
-                container.resources.requests
-                or {}
-            )
+            requests = container.resources.requests or {}
 
-            limits = (
-                container.resources.limits
-                or {}
-            )
+            limits = container.resources.limits or {}
 
             if not requests:
 
-                pods_missing_requests.add(
-                    pod.metadata.name
-                )
+                pods_missing_requests.add(pod.metadata.name)
 
             if not limits:
 
-                pods_missing_limits.add(
-                    pod.metadata.name
-                )
+                pods_missing_limits.add(pod.metadata.name)
 
-    operational_score = max(
-        0,
-        operational_score
-    )
+    operational_score = max(0, operational_score)
 
     if len(pods_missing_requests) > 0:
 
-        recommendations.append(
-            "Add CPU/Memory requests"
-        )
+        recommendations.append("Add CPU/Memory requests")
 
     if len(pods_missing_limits) > 0:
 
-        recommendations.append(
-            "Add CPU/Memory limits"
-        )
+        recommendations.append("Add CPU/Memory limits")
 
     if restarting_pods > 0:
 
-        recommendations.append(
-            "Investigate restart history"
-        )
+        recommendations.append("Investigate restart history")
 
     if not quiet:
-        print_summary(
-            len(pods),
-            healthy,
-            warning,
-            critical,
-            operational_score
-        )
+        print_summary(len(pods), healthy, warning, critical, operational_score)
 
         print_findings(
             len(pods_missing_requests),
             len(pods_missing_limits),
             restarting_pods,
-            not_ready_pods
+            not_ready_pods,
         )
 
         if recommendations:
 
             console.print()
-            console.print(
-                "[bold cyan]Recommendations[/bold cyan]"
-            )
+            console.print("[bold cyan]Recommendations[/bold cyan]")
 
             for item in recommendations:
 
-                console.print(
-                    f"• {item}"
-                )
+                console.print(f"• {item}")
 
         if worst_pod:
 
-            print_worst_pod(
-                worst_pod
-            )
+            print_worst_pod(worst_pod)
         if deep:
-            print_deep_analysis(
-                pods
-            )
+            print_deep_analysis(pods)
 
     return {
         "total": len(pods),
@@ -346,89 +233,49 @@ def analyze_deployment_pods(
         "missing_requests_count": len(pods_missing_requests),
         "missing_limits_count": len(pods_missing_limits),
         "restarting_pods_count": restarting_pods,
-        "not_ready_pods_count": not_ready_pods
+        "not_ready_pods_count": not_ready_pods,
     }
 
-def print_summary(
-    total,
-    healthy,
-    warning,
-    critical,
-    score
-):
 
-    table = Table(
-        title="Pod Summary"
-    )
+def print_summary(total, healthy, warning, critical, score):
+
+    table = Table(title="Pod Summary")
 
     table.add_column("Metric")
     table.add_column("Value")
 
-    table.add_row(
-        "Total Pods",
-        str(total)
-    )
+    table.add_row("Total Pods", str(total))
 
-    table.add_row(
-        "Healthy",
-        str(healthy)
-    )
+    table.add_row("Healthy", str(healthy))
 
-    table.add_row(
-        "Warning",
-        str(warning)
-    )
+    table.add_row("Warning", str(warning))
 
-    table.add_row(
-        "Critical",
-        str(critical)
-    )
+    table.add_row("Critical", str(critical))
 
-    table.add_row(
-        "Overall Score",
-        str(score)
-    )
+    table.add_row("Overall Score", str(score))
 
-    table.add_row(
-        "Risk",
-        get_risk(score)
-    )
+    table.add_row("Risk", get_risk(score))
 
     console.print()
     console.print(table)
 
 
-def print_findings(
-    missing_requests,
-    missing_limits,
-    restarting_pods,
-    not_ready_pods
-):
+def print_findings(missing_requests, missing_limits, restarting_pods, not_ready_pods):
 
     console.print()
-    console.print(
-        "[bold yellow]Common Issues[/bold yellow]"
-    )
+    console.print("[bold yellow]Common Issues[/bold yellow]")
 
     if missing_requests:
-        console.print(
-            f"⚠ Missing Resource Requests ({missing_requests})"
-        )
+        console.print(f"⚠ Missing Resource Requests ({missing_requests})")
 
     if missing_limits:
-        console.print(
-            f"⚠ Missing Resource Limits ({missing_limits})"
-        )
+        console.print(f"⚠ Missing Resource Limits ({missing_limits})")
 
     if restarting_pods:
-        console.print(
-            f"⚠ Restarting Pods ({restarting_pods})"
-        )
+        console.print(f"⚠ Restarting Pods ({restarting_pods})")
 
     if not_ready_pods:
-        console.print(
-            f"⚠ Not Ready Pods ({not_ready_pods})"
-        )
+        console.print(f"⚠ Not Ready Pods ({not_ready_pods})")
 
     if (
         missing_requests == 0
@@ -437,53 +284,33 @@ def print_findings(
         and not_ready_pods == 0
     ):
 
-        console.print(
-            "[green]✓ No issues detected[/green]"
-        )
+        console.print("[green]✓ No issues detected[/green]")
 
 
-def print_worst_pod(
-    pod
-):
+def print_worst_pod(pod):
 
     console.print()
-    console.print(
-        "[bold red]Top Problem Pod[/bold red]"
-    )
+    console.print("[bold red]Top Problem Pod[/bold red]")
 
-    console.print(
-        f"Pod: {pod.metadata.name}"
-    )
+    console.print(f"Pod: {pod.metadata.name}")
 
-    for status in (
-        pod.status.container_statuses or []
-    ):
+    for status in pod.status.container_statuses or []:
 
         if status.restart_count > 0:
 
-            console.print(
-                f"Restarts: {status.restart_count}"
-            )
+            console.print(f"Restarts: {status.restart_count}")
 
-            terminated = getattr(
-                status.last_state,
-                "terminated",
-                None
-            )
+            terminated = getattr(status.last_state, "terminated", None)
 
             if terminated:
 
-                console.print(
-                    f"Previous Exit Code: {terminated.exit_code}" 
-                    )
+                console.print(f"Previous Exit Code: {terminated.exit_code}")
 
-                console.print(
-                    f"Previous Reason: {terminated.reason}" 
-                    )
+                console.print(f"Previous Reason: {terminated.reason}")
                 if terminated.exit_code == 137:
-                    console.print( 
-                        "[yellow]Possible OOMKill or forced termination[/yellow]" 
-                        )
+                    console.print(
+                        "[yellow]Possible OOMKill or forced termination[/yellow]"
+                    )
 
 
 def get_risk(score):
@@ -496,20 +323,15 @@ def get_risk(score):
 
     return "HIGH"
 
-def print_deep_analysis(
-    pods
-):
+
+def print_deep_analysis(pods):
 
     console.print()
-    console.print(
-        "[bold cyan]Deep Analysis[/bold cyan]"
-    )
+    console.print("[bold cyan]Deep Analysis[/bold cyan]")
 
     total_restarts = 0
 
-    table = Table(
-        title="Pod Details"
-    )
+    table = Table(title="Pod Details")
 
     table.add_column("Pod")
     table.add_column("Ready")
@@ -521,16 +343,12 @@ def print_deep_analysis(
         ready = True
         restart_count = 0
 
-        for status in (
-            pod.status.container_statuses or []
-        ):
+        for status in pod.status.container_statuses or []:
 
             if not status.ready:
                 ready = False
 
-            restart_count += (
-                status.restart_count
-            )
+            restart_count += status.restart_count
 
         total_restarts += restart_count
 
@@ -538,141 +356,92 @@ def print_deep_analysis(
             pod.metadata.name,
             "✓" if ready else "✗",
             str(restart_count),
-            pod.status.phase
+            pod.status.phase,
         )
 
     console.print(table)
 
     console.print()
 
-    console.print(
-        f"Total Restarts: {total_restarts}"
-    )
+    console.print(f"Total Restarts: {total_restarts}")
 
-    print_resource_analysis(
-        pods
-    )
+    print_resource_analysis(pods)
 
-    print_restart_analysis(
-        pods
-    )
+    print_restart_analysis(pods)
 
-    print_executive_summary(
-        pods
-    )
+    print_executive_summary(pods)
 
-def print_resource_analysis(
-    pods
-):
+
+def print_resource_analysis(pods):
 
     console.print()
-    console.print(
-        "[bold yellow]Resource Analysis[/bold yellow]"
-    )
+    console.print("[bold yellow]Resource Analysis[/bold yellow]")
 
     for pod in pods:
 
         for container in pod.spec.containers:
 
-            if (
-                container.name
-                in SYSTEM_CONTAINERS
-            ):
+            if container.name in SYSTEM_CONTAINERS:
                 continue
 
-            requests = (
-                container.resources.requests
-                or {}
-            )
+            requests = container.resources.requests or {}
 
-            limits = (
-                container.resources.limits
-                or {}
-            )
+            limits = container.resources.limits or {}
 
             if not requests:
 
                 console.print(
-                    f"⚠ {pod.metadata.name}: "
-                    f"{container.name} missing requests"
+                    f"⚠ {pod.metadata.name}: " f"{container.name} missing requests"
                 )
 
             if not limits:
 
                 console.print(
-                    f"⚠ {pod.metadata.name}: "
-                    f"{container.name} missing limits"
+                    f"⚠ {pod.metadata.name}: " f"{container.name} missing limits"
                 )
-def print_restart_analysis(
-    pods
-):
+
+
+def print_restart_analysis(pods):
 
     console.print()
-    console.print(
-        "[bold yellow]Restart Analysis[/bold yellow]"
-    )
+    console.print("[bold yellow]Restart Analysis[/bold yellow]")
 
     for pod in pods:
 
-        for status in (
-            pod.status.container_statuses or []
-        ):
+        for status in pod.status.container_statuses or []:
 
             if status.restart_count == 0:
                 continue
 
             console.print()
 
-            console.print(
-                f"Pod: {pod.metadata.name}"
-            )
+            console.print(f"Pod: {pod.metadata.name}")
 
-            console.print(
-                f"Container: {status.name}"
-            )
+            console.print(f"Container: {status.name}")
 
-            console.print(
-                f"Restarts: {status.restart_count}"
-            )
+            console.print(f"Restarts: {status.restart_count}")
 
-            terminated = getattr(
-                status.last_state,
-                "terminated",
-                None
-            )
+            terminated = getattr(status.last_state, "terminated", None)
 
             if terminated:
 
-                console.print(
-                    f"Exit Code: {terminated.exit_code}"
-                )
+                console.print(f"Exit Code: {terminated.exit_code}")
 
-                console.print(
-                    f"Reason: {terminated.reason}"
-                )
+                console.print(f"Reason: {terminated.reason}")
 
-                if (
-                    terminated.exit_code == 137
-                ):
+                if terminated.exit_code == 137:
 
-                    console.print(
-                        "[red]Possible OOMKill detected[/red]"
-                    )
+                    console.print("[red]Possible OOMKill detected[/red]")
 
-                elif (
-                    terminated.exit_code != 0
-                ):
+                elif terminated.exit_code != 0:
 
-                    console.print(
-                        "[yellow]Application exited with error[/yellow]"
-                    )
+                    console.print("[yellow]Application exited with error[/yellow]")
+
 
 def print_executive_summary(pods):
 
     console.print()
-    console.print(
-        "[bold green]Executive Summary[/bold green]"
-    )
+    console.print("[bold green]Executive Summary[/bold green]")
 
     total_restarts = 0
     oom_events = 0
@@ -680,19 +449,11 @@ def print_executive_summary(pods):
 
     for pod in pods:
 
-        for status in (
-            pod.status.container_statuses or []
-        ):
+        for status in pod.status.container_statuses or []:
 
-            total_restarts += (
-                status.restart_count
-            )
+            total_restarts += status.restart_count
 
-            terminated = getattr(
-                status.last_state,
-                "terminated",
-                None
-            )
+            terminated = getattr(status.last_state, "terminated", None)
 
             if not terminated:
                 continue
@@ -705,24 +466,16 @@ def print_executive_summary(pods):
 
     if total_restarts == 0:
 
-        console.print(
-            "✓ No restart history detected"
-        )
+        console.print("✓ No restart history detected")
 
     else:
 
-        console.print(
-            f"⚠ Total Restarts: {total_restarts}"
-        )
+        console.print(f"⚠ Total Restarts: {total_restarts}")
 
     if oom_events:
 
-        console.print(
-            f"⚠ OOM Related Events: {oom_events}"
-        )
+        console.print(f"⚠ OOM Related Events: {oom_events}")
 
     if app_errors:
 
-        console.print(
-            f"⚠ Application Failures: {app_errors}"
-        )
+        console.print(f"⚠ Application Failures: {app_errors}")
