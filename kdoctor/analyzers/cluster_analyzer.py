@@ -1,36 +1,46 @@
 from collections import defaultdict
+from typing import Optional
 
-from rich.console import Console
 from rich.table import Table
 
-from kubernetes import client
-from kubernetes import config
-
-console = Console()
+from kdoctor.clients.kube_client import get_core_v1
+from kdoctor.utils.output import console, render
 
 
 def analyze_cluster(
-    details: bool = False
+    details: bool = False,
+    output_format: Optional[str] = None
 ):
 
-    try:
-        config.load_kube_config()
-    except Exception:
-        config.load_incluster_config()
+    v1 = get_core_v1()
 
-    v1 = client.CoreV1Api()
-
-    node_stats = analyze_nodes(v1)
-
-    pod_stats = analyze_pods(v1)
-
-    analyze_system_components(v1)
+    node_stats = analyze_nodes(v1, quiet=bool(output_format))
+    pod_stats = analyze_pods(v1, quiet=bool(output_format))
+    system_components = analyze_system_components(
+        v1,
+        quiet=bool(output_format)
+    )
 
     score = calculate_cluster_score(
         node_stats["not_ready"],
         pod_stats["pending"],
         pod_stats["failed"]
     )
+
+    result = {
+        "cluster_score": score,
+        "risk": get_risk(score),
+        "nodes": node_stats,
+        "pods": pod_stats,
+        "system_components": system_components
+    }
+
+    if details:
+        result["top_namespaces"] = collect_top_namespaces(v1)
+        result["top_nodes"] = collect_top_nodes(v1)
+
+    if output_format and render(result, output_format):
+        return
 
     console.print()
 
@@ -53,7 +63,7 @@ def analyze_cluster(
         analyze_top_nodes(v1)
 
 
-def analyze_nodes(v1):
+def analyze_nodes(v1, quiet: bool = False):
 
     nodes = v1.list_node()
 
@@ -97,51 +107,55 @@ def analyze_nodes(v1):
             ):
                 pid_pressure += 1
 
-    table = Table(title="Node Health")
+    if not quiet:
+        table = Table(title="Node Health")
 
-    table.add_column("Metric")
-    table.add_column("Value")
+        table.add_column("Metric")
+        table.add_column("Value")
 
-    table.add_row(
-        "Ready Nodes",
-        str(ready_nodes)
-    )
+        table.add_row(
+            "Ready Nodes",
+            str(ready_nodes)
+        )
 
-    table.add_row(
-        "NotReady Nodes",
-        str(not_ready_nodes)
-    )
+        table.add_row(
+            "NotReady Nodes",
+            str(not_ready_nodes)
+        )
 
-    table.add_row(
-        "Unschedulable Nodes",
-        str(unschedulable_nodes)
-    )
+        table.add_row(
+            "Unschedulable Nodes",
+            str(unschedulable_nodes)
+        )
 
-    table.add_row(
-        "Memory Pressure",
-        str(memory_pressure)
-    )
+        table.add_row(
+            "Memory Pressure",
+            str(memory_pressure)
+        )
 
-    table.add_row(
-        "Disk Pressure",
-        str(disk_pressure)
-    )
+        table.add_row(
+            "Disk Pressure",
+            str(disk_pressure)
+        )
 
-    table.add_row(
-        "PID Pressure",
-        str(pid_pressure)
-    )
+        table.add_row(
+            "PID Pressure",
+            str(pid_pressure)
+        )
 
-    console.print(table)
+        console.print(table)
 
     return {
         "ready": ready_nodes,
         "not_ready": not_ready_nodes,
-        "unschedulable": unschedulable_nodes
+        "unschedulable": unschedulable_nodes,
+        "memory_pressure": memory_pressure,
+        "disk_pressure": disk_pressure,
+        "pid_pressure": pid_pressure
     }
 
 
-def analyze_pods(v1):
+def analyze_pods(v1, quiet: bool = False):
 
     pods = v1.list_pod_for_all_namespaces()
 
@@ -195,77 +209,83 @@ def analyze_pods(v1):
 
             succeeded += 1
 
-    table = Table(title="Pod Summary")
+    if not quiet:
+        table = Table(title="Pod Summary")
 
-    table.add_column("Metric")
-    table.add_column("Value")
+        table.add_column("Metric")
+        table.add_column("Value")
 
-    table.add_row(
-        "Running",
-        str(running)
-    )
-
-    table.add_row(
-        "Pending",
-        str(pending)
-    )
-
-    table.add_row(
-        "Failed",
-        str(failed)
-    )
-
-    table.add_row(
-        "Succeeded",
-        str(succeeded)
-    )
-
-    console.print(table)
-
-    if pending_pods:
-
-        console.print()
-        console.print(
-            "[bold yellow]Pending Pods[/bold yellow]"
+        table.add_row(
+            "Running",
+            str(running)
         )
 
-        for pod in pending_pods[:20]:
-
-            console.print(
-                f"⚠ {pod}"
-            )
-
-    if pending_reasons:
-
-        console.print()
-        console.print(
-            "[bold yellow]Pending Reasons[/bold yellow]"
+        table.add_row(
+            "Pending",
+            str(pending)
         )
 
-        for pod_name, reason in pending_reasons[:10]:
+        table.add_row(
+            "Failed",
+            str(failed)
+        )
 
+        table.add_row(
+            "Succeeded",
+            str(succeeded)
+        )
+
+        console.print(table)
+
+        if pending_pods:
+
+            console.print()
             console.print(
-                f"⚠ {pod_name}: {reason}"
+                "[bold yellow]Pending Pods[/bold yellow]"
             )
+
+            for pod in pending_pods[:20]:
+
+                console.print(
+                    f"⚠ {pod}"
+                )
+
+        if pending_reasons:
+
+            console.print()
+            console.print(
+                "[bold yellow]Pending Reasons[/bold yellow]"
+            )
+
+            for pod_name, reason in pending_reasons[:10]:
+
+                console.print(
+                    f"⚠ {pod_name}: {reason}"
+                )
 
     return {
         "running": running,
         "pending": pending,
         "failed": failed,
-        "succeeded": succeeded
+        "succeeded": succeeded,
+        "pending_pods": pending_pods,
+        "pending_reasons": [
+            {"pod": pod_name, "message": reason}
+            for pod_name, reason in pending_reasons
+        ]
     }
 
 
-def analyze_system_components(v1):
+def analyze_system_components(v1, quiet: bool = False):
+
+    coredns = False
+    metrics_server = False
 
     try:
 
         pods = v1.list_namespaced_pod(
             namespace="kube-system"
         )
-
-        coredns = False
-        metrics_server = False
 
         for pod in pods.items:
 
@@ -277,30 +297,41 @@ def analyze_system_components(v1):
             if "metrics-server" in name:
                 metrics_server = True
 
-        table = Table(
-            title="System Components"
-        )
+        if not quiet:
+            table = Table(
+                title="System Components"
+            )
 
-        table.add_column("Component")
-        table.add_column("Status")
+            table.add_column("Component")
+            table.add_column("Status")
 
-        table.add_row(
-            "CoreDNS",
-            "Healthy" if coredns else "Missing"
-        )
+            table.add_row(
+                "CoreDNS",
+                "Healthy" if coredns else "Missing"
+            )
 
-        table.add_row(
-            "Metrics Server",
-            "Healthy" if metrics_server else "Missing"
-        )
+            table.add_row(
+                "Metrics Server",
+                "Healthy" if metrics_server else "Missing"
+            )
 
-        console.print(table)
+            console.print(table)
+
+        return {
+            "coredns": coredns,
+            "metrics_server": metrics_server
+        }
 
     except Exception as e:
 
         console.print(
             f"[red]Failed to check kube-system:[/red] {e}"
         )
+        return {
+            "coredns": coredns,
+            "metrics_server": metrics_server,
+            "error": str(e)
+        }
 
 
 def calculate_cluster_score(
@@ -337,7 +368,7 @@ def get_risk(score):
     return "HIGH"
 
 
-def analyze_top_namespaces(v1):
+def collect_top_namespaces(v1):
 
     pods = v1.list_pod_for_all_namespaces()
 
@@ -349,6 +380,23 @@ def analyze_top_namespaces(v1):
             pod.metadata.namespace
         ] += 1
 
+    return [
+        {"namespace": ns, "pods": count}
+        for ns, count in sorted(
+            counts.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:10]
+    ]
+
+
+def analyze_top_namespaces(v1, quiet: bool = False):
+
+    results = collect_top_namespaces(v1)
+
+    if quiet:
+        return results
+
     table = Table(
         title="Top Namespaces By Pod Count"
     )
@@ -356,21 +404,17 @@ def analyze_top_namespaces(v1):
     table.add_column("Namespace")
     table.add_column("Pods")
 
-    for ns, count in sorted(
-        counts.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )[:10]:
+    for item in results:
 
         table.add_row(
-            ns,
-            str(count)
+            item["namespace"],
+            str(item["pods"])
         )
 
     console.print(table)
 
 
-def analyze_top_nodes(v1):
+def collect_top_nodes(v1):
 
     pods = v1.list_pod_for_all_namespaces()
 
@@ -384,6 +428,23 @@ def analyze_top_nodes(v1):
                 pod.spec.node_name
             ] += 1
 
+    return [
+        {"node": node, "pods": count}
+        for node, count in sorted(
+            counts.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:10]
+    ]
+
+
+def analyze_top_nodes(v1, quiet: bool = False):
+
+    results = collect_top_nodes(v1)
+
+    if quiet:
+        return results
+
     table = Table(
         title="Top Nodes By Pod Count"
     )
@@ -391,34 +452,39 @@ def analyze_top_nodes(v1):
     table.add_column("Node")
     table.add_column("Pods")
 
-    for node, count in sorted(
-        counts.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )[:10]:
+    for item in results:
 
         table.add_row(
-            node,
-            str(count)
+            item["node"],
+            str(item["pods"])
         )
 
     console.print(table)
 
-def analyze_hotspots():
 
-    try:
-        config.load_kube_config()
-    except:
-        config.load_incluster_config()
+def analyze_hotspots(output_format: str = None):
+    v1 = get_core_v1()
 
-    v1 = client.CoreV1Api()
+    restart_hotspots = collect_restart_hotspots(v1)
+    namespace_hotspots = collect_namespace_hotspots(v1)
+    node_hotspots = collect_node_hotspots(v1)
 
-    find_restart_hotspots(v1)
-    find_namespace_hotspots(v1)
-    find_node_hotspots(v1)
+    if output_format and render(
+        {
+            "restart_hotspots": restart_hotspots,
+            "namespace_hotspots": namespace_hotspots,
+            "node_hotspots": node_hotspots
+        },
+        output_format
+    ):
+        return
 
-def find_restart_hotspots(v1):
+    find_restart_hotspots_display(restart_hotspots)
+    find_namespace_hotspots_display(namespace_hotspots)
+    find_node_hotspots_display(node_hotspots)
 
+
+def collect_restart_hotspots(v1):
     pods = v1.list_pod_for_all_namespaces()
 
     restarts = []
@@ -435,16 +501,26 @@ def find_restart_hotspots(v1):
         if total_restarts > 0:
 
             restarts.append(
-                (
-                    f"{pod.metadata.namespace}/{pod.metadata.name}",
-                    total_restarts
-                )
+                {
+                    "pod": f"{pod.metadata.namespace}/{pod.metadata.name}",
+                    "restarts": total_restarts
+                }
             )
 
     restarts.sort(
-        key=lambda x: x[1],
+        key=lambda x: x["restarts"],
         reverse=True
     )
+
+    return restarts[:10]
+
+
+def find_restart_hotspots(v1):
+    restart_hotspots = collect_restart_hotspots(v1)
+    find_restart_hotspots_display(restart_hotspots)
+
+
+def find_restart_hotspots_display(restarts):
 
     table = Table(
         title="Top Restarting Pods"
@@ -453,18 +529,18 @@ def find_restart_hotspots(v1):
     table.add_column("Pod")
     table.add_column("Restarts")
 
-    for pod_name, count in restarts[:10]:
+    for item in restarts:
 
         table.add_row(
-            pod_name,
-            str(count)
+            item["pod"],
+            str(item["restarts"])
         )
 
     console.print()
     console.print(table)
 
-def find_namespace_hotspots(v1):
 
+def collect_namespace_hotspots(v1):
     pods = v1.list_pod_for_all_namespaces()
 
     namespace_counts = {}
@@ -477,6 +553,23 @@ def find_namespace_hotspots(v1):
             namespace_counts.get(namespace, 0) + 1
         )
 
+    return [
+        {"namespace": ns, "pods": count}
+        for ns, count in sorted(
+            namespace_counts.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:10]
+    ]
+
+
+def find_namespace_hotspots(v1):
+    hotspots = collect_namespace_hotspots(v1)
+    find_namespace_hotspots_display(hotspots)
+
+
+def find_namespace_hotspots_display(hotspots):
+
     table = Table(
         title="Top Namespaces"
     )
@@ -484,22 +577,18 @@ def find_namespace_hotspots(v1):
     table.add_column("Namespace")
     table.add_column("Pods")
 
-    for namespace, count in sorted(
-        namespace_counts.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )[:10]:
+    for item in hotspots:
 
         table.add_row(
-            namespace,
-            str(count)
+            item["namespace"],
+            str(item["pods"])
         )
 
     console.print()
     console.print(table)
 
-def find_node_hotspots(v1):
 
+def collect_node_hotspots(v1):
     pods = v1.list_pod_for_all_namespaces()
 
     node_counts = {}
@@ -521,22 +610,10 @@ def find_node_hotspots(v1):
         reverse=True
     )
 
-    table = Table(
-        title="Node Distribution"
-    )
-
-    table.add_column("Node")
-    table.add_column("Pods")
-
-    for node, count in sorted_nodes[:10]:
-
-        table.add_row(
-            node,
-            str(count)
-        )
-
-    console.print()
-    console.print(table)
+    result = [
+        {"node": node, "pods": count}
+        for node, count in sorted_nodes[:10]
+    ]
 
     if len(sorted_nodes) > 1:
 
@@ -545,9 +622,48 @@ def find_node_hotspots(v1):
 
         spread = highest - lowest
 
+        result.append(
+            {
+                "imbalance_warning": spread > 20,
+                "spread": spread
+            }
+        )
+
+    return result
+
+
+def find_node_hotspots(v1):
+    node_hotspots = collect_node_hotspots(v1)
+    find_node_hotspots_display(node_hotspots)
+
+
+def find_node_hotspots_display(node_hotspots):
+
+    table = Table(
+        title="Node Distribution"
+    )
+
+    table.add_column("Node")
+    table.add_column("Pods")
+
+    for item in [h for h in node_hotspots if "node" in h]:
+
+        table.add_row(
+            item["node"],
+            str(item["pods"])
+        )
+
+    console.print()
+    console.print(table)
+
+    imbalance_item = [h for h in node_hotspots if "imbalance_warning" in h]
+
+    if imbalance_item:
+
+        spread = imbalance_item[0]["spread"]
         console.print()
 
-        if spread > 20:
+        if imbalance_item[0]["imbalance_warning"]:
 
             console.print(
                 f"[yellow]Node imbalance detected. Spread: {spread} pods[/yellow]"

@@ -1,26 +1,19 @@
-from rich.console import Console
 from rich.table import Table
-
-from kubernetes import client
-from kubernetes import config
+from typing import Optional
 
 from kdoctor.analyzers.pod_analyzer import calculate_health_score
-
-console = Console()
+from kdoctor.clients.kube_client import get_apps_v1, get_core_v1
+from kdoctor.utils.output import console, render
 
 
 def analyze_deployment(
     deployment_name,
-    namespace
+    namespace,
+    output_format: Optional[str] = None
 ):
 
-    try:
-        config.load_kube_config()
-    except:
-        config.load_incluster_config()
-
-    apps = client.AppsV1Api()
-    core = client.CoreV1Api()
+    apps = get_apps_v1()
+    core = get_core_v1()
 
     deployment = apps.read_namespaced_deployment(
         deployment_name,
@@ -52,6 +45,44 @@ def analyze_deployment(
 
     if ready < desired:
         score -= 10
+
+    pod_scores = []
+
+    for pod in pods.items:
+
+        pod_score, _ = calculate_health_score(
+            pod
+        )
+
+        pod_scores.append(
+            pod_score
+        )
+
+    avg_score = (
+        sum(pod_scores) // len(pod_scores)
+        if pod_scores
+        else 0
+    )
+
+    final_score = (
+        score + avg_score
+    ) // 2
+
+    output_data = {
+        "deployment": deployment_name,
+        "namespace": namespace,
+        "desired_replicas": desired,
+        "available_replicas": available,
+        "ready_replicas": ready,
+        "deployment_health_score": score,
+        "average_pod_score": avg_score,
+        "final_health_score": final_score,
+        "risk": get_risk(final_score),
+        "pod_count": len(pods.items)
+    }
+
+    if output_format and render(output_data, output_format):
+        return
 
     table = Table(
         title="Deployment Analysis"
@@ -87,28 +118,6 @@ def analyze_deployment(
 
     console.print(table)
 
-    pod_scores = []
-
-    for pod in pods.items:
-
-        pod_score, _ = calculate_health_score(
-            pod
-        )
-
-        pod_scores.append(
-            pod_score
-        )
-
-    avg_score = (
-        sum(pod_scores) // len(pod_scores)
-        if pod_scores
-        else 0
-    )
-
-    final_score = (
-        score + avg_score
-    ) // 2
-
     console.print()
 
     console.print(
@@ -119,27 +128,16 @@ def analyze_deployment(
         f"Risk: {get_risk(final_score)}"
     )
 
-def analyze_all_deployments(namespace):
 
-    try:
-        config.load_kube_config()
-    except:
-        config.load_incluster_config()
-
-    apps = client.AppsV1Api()
+def analyze_all_deployments(
+    namespace,
+    output_format: Optional[str] = None
+):
+    apps = get_apps_v1()
 
     deployments = apps.list_namespaced_deployment(
         namespace
     )
-
-    table = Table(
-        title=f"Deployment Health Report ({namespace})"
-    )
-
-    table.add_column("Deployment")
-    table.add_column("Ready")
-    table.add_column("Score")
-    table.add_column("Risk")
 
     results = []
 
@@ -163,6 +161,9 @@ def analyze_all_deployments(namespace):
             {
                 "name": deployment.metadata.name,
                 "ready": f"{ready}/{desired}",
+                "ready_count": ready,
+                "desired_count": desired,
+                "available_count": available,
                 "score": score,
                 "risk": get_risk(score)
             }
@@ -171,6 +172,25 @@ def analyze_all_deployments(namespace):
     results.sort(
         key=lambda x: x["score"]
     )
+
+    if output_format and render(
+        {
+            "namespace": namespace,
+            "deployments": results,
+            "summary": calculate_deployment_summary(results)
+        },
+        output_format
+    ):
+        return
+
+    table = Table(
+        title=f"Deployment Health Report ({namespace})"
+    )
+
+    table.add_column("Deployment")
+    table.add_column("Ready")
+    table.add_column("Score")
+    table.add_column("Risk")
 
     for item in results:
 
@@ -182,6 +202,15 @@ def analyze_all_deployments(namespace):
         )
 
     console.print(table)
+
+
+def calculate_deployment_summary(results):
+    return {
+        "total": len(results),
+        "healthy": len([r for r in results if r["score"] >= 90]),
+        "warning": len([r for r in results if 70 <= r["score"] < 90]),
+        "critical": len([r for r in results if r["score"] < 70])
+    }
 
 def get_risk(score):
 

@@ -10,12 +10,26 @@ cluster = typer.Typer()
 
 @cluster.command("analyze")
 def analyze(
-    details: bool = False
+    details: bool = False,
+    output: str = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output format: json or yaml"
+    )
 ):
     analyze_cluster(
-        details=details
+        details=details,
+        output_format=output
     )
 
 @cluster.command("hotspots")
-def hotspots():
-    analyze_hotspots()
+def hotspots(
+    output: str = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output format: json or yaml"
+    )
+):
+    analyze_hotspots(output)

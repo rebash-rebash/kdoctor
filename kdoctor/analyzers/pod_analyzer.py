@@ -2,6 +2,7 @@ from rich.console import Console
 from rich.table import Table
 
 from kdoctor.clients.kube_client import get_core_v1
+from kdoctor.utils.output import render
 
 console = Console()
 
@@ -11,7 +12,11 @@ SYSTEM_CONTAINERS = {
 }
 
 
-def analyze_pod(pod_name: str, namespace: str):
+def analyze_pod(
+    pod_name: str,
+    namespace: str,
+    output_format: str = None
+):
     v1 = get_core_v1()
 
     try:
@@ -25,10 +30,27 @@ def analyze_pod(pod_name: str, namespace: str):
         )
         return
 
-    print_pod_summary(pod, namespace)
-
     score, recommendations = calculate_health_score(pod)
+    container_data = get_container_data(pod)
+    events = collect_events(v1, pod_name, namespace)
 
+    output_data = {
+        "pod_name": pod.metadata.name,
+        "namespace": namespace,
+        "status": str(pod.status.phase),
+        "node": str(pod.spec.node_name),
+        "pod_ip": str(pod.status.pod_ip),
+        "health_score": score,
+        "grade": get_grade(score),
+        "recommendations": recommendations,
+        "containers": container_data,
+        "events": events
+    }
+
+    if output_format and render(output_data, output_format):
+        return
+
+    print_pod_summary(pod, namespace)
     print_container_table(pod)
 
     console.print()
@@ -94,6 +116,69 @@ def print_pod_summary(pod, namespace):
     )
 
     console.print(table)
+
+
+def get_container_data(pod):
+    statuses = {
+        cs.name: cs
+        for cs in (
+            pod.status.container_statuses or []
+        )
+    }
+
+    containers = []
+
+    for container in pod.spec.containers:
+        status = statuses.get(container.name)
+        containers.append(
+            {
+                "name": container.name,
+                "ready": bool(status and status.ready),
+                "restarts": int(status.restart_count) if status else 0,
+                "resources": {
+                    "requests": getattr(container.resources, "requests", None),
+                    "limits": getattr(container.resources, "limits", None)
+                }
+            }
+        )
+
+    return containers
+
+
+def collect_events(v1, pod_name, namespace):
+    try:
+        events = v1.list_namespaced_event(
+            namespace=namespace,
+            field_selector=(
+                f"involvedObject.name={pod_name}"
+            )
+        )
+
+        sorted_events = sorted(
+            events.items,
+            key=lambda e: (
+                e.last_timestamp
+                or e.event_time
+                or e.metadata.creation_timestamp
+            ),
+            reverse=True
+        )
+
+        return [
+            {
+                "reason": event.reason,
+                "message": event.message,
+                "type": event.type,
+                "timestamp": str(
+                    event.last_timestamp
+                    or event.event_time
+                    or event.metadata.creation_timestamp
+                )
+            }
+            for event in sorted_events[:10]
+        ]
+    except Exception:
+        return []
 
 
 def print_container_table(pod):
@@ -329,7 +414,8 @@ def analyze_all_pods(
     namespace: str,
     critical_only: bool = False,
     warning_only: bool = False,
-    top: int = 0
+    top: int = 0,
+    output_format: str = None
 ):
 
     v1 = get_core_v1()
@@ -354,18 +440,6 @@ def analyze_all_pods(
         )
 
         return
-
-    table = Table(
-        title=f"Pod Health Report ({namespace})"
-    )
-
-    table.add_column("Pod")
-    table.add_column("Status")
-    table.add_column("Ready")
-    table.add_column("Restarts")
-    table.add_column("Score")
-    table.add_column("Risk")
-    table.add_column("Grade")
 
     pod_results = []
 
@@ -395,6 +469,8 @@ def analyze_all_pods(
                 "name": pod.metadata.name,
                 "status": pod.status.phase,
                 "ready": f"{ready_count}/{total_count}",
+                "ready_count": ready_count,
+                "total_count": total_count,
                 "restarts": restarts,
                 "score": score,
                 "risk": get_risk(score),
@@ -425,6 +501,28 @@ def analyze_all_pods(
 
         pod_results = pod_results[:top]
 
+    if output_format and render(
+        {
+            "namespace": namespace,
+            "pods": pod_results,
+            "summary": calculate_pod_summary(pod_results)
+        },
+        output_format
+    ):
+        return
+
+    table = Table(
+        title=f"Pod Health Report ({namespace})"
+    )
+
+    table.add_column("Pod")
+    table.add_column("Status")
+    table.add_column("Ready")
+    table.add_column("Restarts")
+    table.add_column("Score")
+    table.add_column("Risk")
+    table.add_column("Grade")
+
     for pod in pod_results:
 
         score_style = get_score_style(
@@ -446,6 +544,39 @@ def analyze_all_pods(
     print_summary(
         pod_results
     )
+
+
+def calculate_pod_summary(pod_results):
+    total = len(pod_results)
+
+    healthy = len(
+        [
+            p for p in pod_results
+            if p["score"] >= 90
+        ]
+    )
+
+    warning = len(
+        [
+            p for p in pod_results
+            if 70 <= p["score"] < 90
+        ]
+    )
+
+    critical = len(
+        [
+            p for p in pod_results
+            if p["score"] < 70
+        ]
+    )
+
+    return {
+        "total": total,
+        "healthy": healthy,
+        "warning": warning,
+        "critical": critical
+    }
+
 
 def get_risk(score):
 

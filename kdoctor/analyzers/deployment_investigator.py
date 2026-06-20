@@ -1,15 +1,9 @@
-from rich.console import Console
 from rich.table import Table
+from typing import Optional
 
-from kubernetes import client
-from kubernetes import config
-from sympy import python
-
-from kdoctor.analyzers.pod_analyzer import (
-    calculate_health_score
-)
-
-console = Console()
+from kdoctor.analyzers.pod_analyzer import calculate_health_score
+from kdoctor.clients.kube_client import get_apps_v1, get_core_v1
+from kdoctor.utils.output import console, render
 
 
 SYSTEM_CONTAINERS = {
@@ -21,16 +15,12 @@ SYSTEM_CONTAINERS = {
 def investigate_deployment(
     deployment_name: str,
     namespace: str,
-    deep: bool = False
+    deep: bool = False,
+    output_format: Optional[str] = None
 ):
 
-    try:
-        config.load_kube_config()
-    except Exception:
-        config.load_incluster_config()
-
-    apps = client.AppsV1Api()
-    v1 = client.CoreV1Api()
+    apps = get_apps_v1()
+    v1 = get_core_v1()
 
     try:
 
@@ -77,17 +67,31 @@ def investigate_deployment(
         deployment.status.updated_replicas or 0
     )
 
+    pod_analysis = analyze_deployment_pods(
+        pods.items,
+        deep,
+        quiet=bool(output_format)
+    )
+
+    if output_format and render(
+        {
+            "deployment": deployment_name,
+            "namespace": namespace,
+            "desired": desired,
+            "ready": ready,
+            "updated": updated,
+            "pods": pod_analysis
+        },
+        output_format
+    ):
+        return
+
     print_deployment_header(
         deployment_name,
         namespace,
         desired,
         ready,
         updated
-    )
-
-    analyze_deployment_pods(
-        pods.items,
-        deep
     )
 
 
@@ -136,16 +140,24 @@ def print_deployment_header(
 
 def analyze_deployment_pods(
     pods,
-    deep=False
+    deep=False,
+    quiet=False
 ):
 
     if not pods:
 
-        console.print(
-            "[yellow]No pods found[/yellow]"
-        )
+        if not quiet:
+            console.print(
+                "[yellow]No pods found[/yellow]"
+            )
 
-        return
+        return {
+            "total": 0,
+            "healthy": 0,
+            "warning": 0,
+            "critical": 0,
+            "operational_score": 100
+        }
 
     healthy = 0
     warning = 0
@@ -267,21 +279,6 @@ def analyze_deployment_pods(
         operational_score
     )
 
-    print_summary(
-        len(pods),
-        healthy,
-        warning,
-        critical,
-        operational_score
-    )
-
-    print_findings(
-        len(pods_missing_requests),
-        len(pods_missing_limits),
-        restarting_pods,
-        not_ready_pods
-    )
-
     if len(pods_missing_requests) > 0:
 
         recommendations.append(
@@ -300,28 +297,57 @@ def analyze_deployment_pods(
             "Investigate restart history"
         )
 
-    if recommendations:
-
-        console.print()
-        console.print(
-            "[bold cyan]Recommendations[/bold cyan]"
+    if not quiet:
+        print_summary(
+            len(pods),
+            healthy,
+            warning,
+            critical,
+            operational_score
         )
 
-        for item in recommendations:
+        print_findings(
+            len(pods_missing_requests),
+            len(pods_missing_limits),
+            restarting_pods,
+            not_ready_pods
+        )
 
+        if recommendations:
+
+            console.print()
             console.print(
-                f"• {item}"
+                "[bold cyan]Recommendations[/bold cyan]"
             )
 
-    if worst_pod:
+            for item in recommendations:
 
-        print_worst_pod(
-            worst_pod
-        )
-    if deep:
-        print_deep_analysis(
-            pods
-        )
+                console.print(
+                    f"• {item}"
+                )
+
+        if worst_pod:
+
+            print_worst_pod(
+                worst_pod
+            )
+        if deep:
+            print_deep_analysis(
+                pods
+            )
+
+    return {
+        "total": len(pods),
+        "healthy": healthy,
+        "warning": warning,
+        "critical": critical,
+        "operational_score": operational_score,
+        "recommendations": recommendations,
+        "missing_requests_count": len(pods_missing_requests),
+        "missing_limits_count": len(pods_missing_limits),
+        "restarting_pods_count": restarting_pods,
+        "not_ready_pods_count": not_ready_pods
+    }
 
 def print_summary(
     total,

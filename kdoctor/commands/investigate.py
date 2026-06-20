@@ -8,7 +8,7 @@ investigate = typer.Typer()
 @investigate.command("pod")
 def pod(
     name: str,
-    namespace: str = "default"
+    namespace: str = typer.Option("default", "--namespace", "-n")
 ):
     investigate_pod(
         name,

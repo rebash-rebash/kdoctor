@@ -58,24 +58,31 @@ Core commands:
 - `kdoctor deployment investigate DEPLOYMENT_NAME -n NAMESPACE [--deep]` — Deployment investigation
 - `kdoctor deployment rollout-history DEPLOYMENT_NAME -n NAMESPACE` — Rollout timeline & revisions
 - `kdoctor deployment diff DEPLOYMENT_NAME REV1 REV2 -n NAMESPACE` — Deployment revision diff
+- `kdoctor namespace investigate NAMESPACE [--output json|yaml]` — Namespace intelligence, health, risk, and workload hotspots
+- `kdoctor deployment rollback-advisor DEPLOYMENT_NAME -n NAMESPACE [--output json|yaml]` — Rollback target and safety assessment
+- `kdoctor deployment drift DEPLOYMENT_NAME -n NAMESPACE [--output json|yaml]` — Live deployment drift detection
+- `kdoctor deployment audit DEPLOYMENT_NAME -n NAMESPACE [--output json|yaml]` — Kubernetes best practices audit
+- `kdoctor incident investigate` — Cluster-wide incident summary and likely cause
+- `kdoctor deployment rca DEPLOYMENT_NAME -n NAMESPACE` — Root-cause candidate analysis
 
-Capabilities (high level): node health, pod health scoring, probe validation, restart analysis, replica and rollout analysis, image/env/resource/secret/ConfigMap diffs, risk assessment, and recommendations.
+Capabilities (high level): node health, pod health scoring, namespace health and risk scoring, probe validation, restart analysis, OOM and CrashLoopBackOff detection, replica and rollout analysis, rollback advice, image/env/resource/secret/ConfigMap drift detection, best-practices audits, incident summaries, root-cause candidates, risk assessment, and recommendations.
 
 ## Feature Matrix
 
-| Feature / Command | Cluster Analyze | Pod Analyze | Deployment Investigate | Rollout History | Deployment Diff |
-|---|:---:|:---:|:---:|:---:|:---:|
-| Health scoring | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Node health | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Pod summary | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Probe validation | ❌ | ✅ | ✅ | ❌ | ❌ |
-| Restart analysis | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Replica analysis | ❌ | ❌ | ✅ | ✅ | ❌ |
-| Image comparison | ❌ | ❌ | ✅ | ✅ | ✅ |
-| Env / Config diff | ❌ | ❌ | ✅ | ❌ | ✅ |
-| Secret comparison | ❌ | ❌ | ✅ | ❌ | ✅ |
-| Risk assessment | ✅ | ✅ | ✅ | ❌ | ✅ |
-| Recommendations | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Feature / Command | Cluster Analyze | Namespace Investigate | Pod Analyze | Deployment Investigate | Rollout/Diff | Audit/Drift/RCA | Incident |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Health scoring | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Risk assessment | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Node health | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Pod summary | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Restart analysis | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| OOM / CrashLoopBackOff detection | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Replica analysis | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Image comparison | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Env / Config diff | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Secret comparison | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Best-practices audit | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| Recommendations | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ## Comparison: KDoctor vs kubectl vs Lens vs K9s
 
@@ -147,6 +154,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -U pip setuptools
 pip install -r requirements.txt
+pip install -r dev-requirements.txt
 pip install -e .
 
 # lint, format, and tests
@@ -170,6 +178,13 @@ Pod analysis:
 
 ```bash
 kdoctor pod analyze POD_NAME -n NAMESPACE
+kdoctor pod analyze-all -n NAMESPACE --critical-only --top 10
+```
+
+Namespace intelligence:
+
+```bash
+kdoctor namespace investigate NAMESPACE
 ```
 
 Deployment investigation:
@@ -191,7 +206,50 @@ Deployment diff:
 kdoctor deployment diff DEPLOYMENT_NAME REVISION1 REVISION2 -n NAMESPACE
 ```
 
-Options: `--details` for extended checks; `--output json` for CI-friendly output.
+Deployment intelligence:
+
+```bash
+kdoctor deployment rollback-advisor DEPLOYMENT_NAME -n NAMESPACE [--output json|yaml]
+kdoctor deployment drift DEPLOYMENT_NAME -n NAMESPACE [--output json|yaml]
+kdoctor deployment audit DEPLOYMENT_NAME -n NAMESPACE [--output json|yaml]
+kdoctor deployment rca DEPLOYMENT_NAME -n NAMESPACE
+```
+
+Incident investigation:
+
+```bash
+kdoctor incident investigate
+```
+
+Example outputs:
+
+```text
+Health Score: 72/100
+Risk: MEDIUM
+Top Restarting Deployments: payment-api, worker
+OOM Events: payment-api: 2
+Missing Limits: 6
+Recommendations: Review memory limits and recent rollouts.
+```
+
+```text
+SAFE TO ROLLBACK
+Current Revision: 38
+Recommended Revision: 37
+Reasons:
+- Restart count increased
+- OOM events increased
+- Resource limits changed
+```
+
+```text
+Drift Detected
+Field: spec.replicas
+Expected: 2
+Actual: 5
+```
+
+Options: `--details` for extended cluster checks and `-n, --namespace` for namespace-scoped pod and deployment commands.
 
 ## Screenshots
 
@@ -205,13 +263,8 @@ Add real screenshots to `docs/images/` to illustrate outputs. Current placeholde
 
 Planned items:
 
-- Namespace Investigation
-- Rollback Advisor
-- AI-powered Root Cause Analysis
 - Prometheus Integration
 - Grafana Integration
-- Deployment Drift Detection
-- Kubernetes Best Practices Audit
 - Cost Optimization Recommendations
 
 ## Contributing

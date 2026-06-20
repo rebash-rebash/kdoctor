@@ -1,10 +1,7 @@
-from rich.console import Console
 from rich.table import Table
 
-from kubernetes import client
-from kubernetes import config
-
-console = Console()
+from kdoctor.clients.kube_client import get_core_v1
+from kdoctor.utils.output import console
 
 SYSTEM_CONTAINERS = {
     "istio-proxy",
@@ -16,12 +13,7 @@ def investigate_pod(
     namespace: str
 ):
 
-    try:
-        config.load_kube_config()
-    except Exception:
-        config.load_incluster_config()
-
-    v1 = client.CoreV1Api()
+    v1 = get_core_v1()
 
     try:
         pod = v1.read_namespaced_pod(

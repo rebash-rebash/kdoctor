@@ -1,23 +1,17 @@
-from rich.console import Console
 from rich.table import Table
+from typing import Optional
 
-from kubernetes import client
-from kubernetes import config
-
-console = Console()
+from kdoctor.clients.kube_client import get_apps_v1
+from kdoctor.utils.output import console, render
 
 
 def show_rollout_history(
     deployment_name: str,
-    namespace: str
+    namespace: str,
+    output_format: Optional[str] = None
 ):
 
-    try:
-        config.load_kube_config()
-    except Exception:
-        config.load_incluster_config()
-
-    apps = client.AppsV1Api()
+    apps = get_apps_v1()
 
     deployment = (
         apps.read_namespaced_deployment(
@@ -63,14 +57,7 @@ def show_rollout_history(
         reverse=True
     )
 
-    table = Table(
-        title="Deployment Rollout History"
-    )
-
-    table.add_column("Revision")
-    table.add_column("ReplicaSet")
-    table.add_column("Image")
-    table.add_column("Created")
+    revisions = []
 
     for rs in owned_rs:
 
@@ -91,11 +78,41 @@ def show_rollout_history(
             rs.metadata.creation_timestamp
         )
 
+        revisions.append(
+            {
+                "revision": revision,
+                "replica_set": rs.metadata.name,
+                "image": image,
+                "created": created
+            }
+        )
+
+    if output_format and render(
+        {
+            "deployment": deployment_name,
+            "namespace": namespace,
+            "revisions": revisions
+        },
+        output_format
+    ):
+        return
+
+    table = Table(
+        title="Deployment Rollout History"
+    )
+
+    table.add_column("Revision")
+    table.add_column("ReplicaSet")
+    table.add_column("Image")
+    table.add_column("Created")
+
+    for rev in revisions:
+
         table.add_row(
-            revision,
-            rs.metadata.name,
-            image,
-            created
+            rev["revision"],
+            rev["replica_set"],
+            rev["image"],
+            rev["created"]
         )
 
     console.print(table)

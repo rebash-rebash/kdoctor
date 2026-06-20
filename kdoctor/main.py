@@ -5,6 +5,7 @@ from kdoctor.commands.namespace import namespace
 from kdoctor.commands.deployment import deployment
 from kdoctor.commands.cluster import cluster
 from kdoctor.commands.investigate import investigate
+from kdoctor.commands.incident import incident
 
 app = typer.Typer()
 
@@ -31,6 +32,11 @@ app.add_typer(
 app.add_typer(
     investigate,
     name="investigate"
+)
+
+app.add_typer(
+    incident,
+    name="incident"
 )
 
 if __name__ == "__main__":

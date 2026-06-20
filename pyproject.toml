@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kdoctor"
+version = "0.1.0"
+description = "KDoctor is a Kubernetes diagnostics and troubleshooting CLI."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+keywords = ["kubernetes", "cli", "troubleshooting", "devops", "SRE"]
+authors = [
+  { name = "KDoctor Project" }
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+dependencies = [
+  "typer",
+  "rich",
+  "kubernetes",
+  "PyYAML"
+]
+
+[project.urls]
+Home = "https://github.com/OWNER/REPO"
+Repository = "https://github.com/OWNER/REPO"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.entry-points."console_scripts"]
+kdoctor = "kdoctor.main:app"
